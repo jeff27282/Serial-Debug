@@ -1,0 +1,3301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>串口调试助手</title>
+    <style>
+        /* 🌑 4-Color Dark Theme
+             BG  #0d1117   背景
+             TXT #e6edf3   主色（文字）
+             ACC #58a6ff   次色（按钮/高亮）
+             CMT #8b949e   注释色（标签/时间戳）
+        */
+        :root {
+            --bg: #0d1117;
+            --text: #e6edf3;
+            --accent: #58a6ff;
+            --comment: #8b949e;
+            --raised: #161b22;
+            --border: #21262d;
+            --danger: #f85149;
+            --success: #3fb950;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ===== 标题栏 ===== */
+        .header {
+            background: var(--bg);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .header .status-badge {
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 6px;
+            background: var(--border);
+            color: var(--comment);
+            position:relative;
+            margin-left:14px;
+            transition: all .3s;
+        }
+        .header .status-badge::before {
+            content:''; position:absolute; left:-12px; top:50%;
+            width:8px; height:8px; border-radius:50%;
+            transform:translateY(-50%);
+        }
+        .header .status-badge.connected {
+            background: var(--accent);
+            color: var(--bg);
+        }
+        .header .status-badge.connected::before {
+            background:#3fb950;
+            animation: blinkGreen 1s ease-in-out infinite;
+        }
+        .header .status-badge.disconnected {
+            background: var(--comment);
+            color: var(--bg);
+        }
+        .header .status-badge.disconnected::before {
+            background:#f85149;
+            animation:none;
+        }
+        .header .btn-icon {
+            background:transparent; border:1px solid var(--border);
+            border-radius:6px; cursor:pointer; font-size:16px;
+            padding:4px 8px; line-height:1; transition:all .2s;
+        }
+        .header .btn-icon:hover { border-color:var(--accent); background:var(--raised); }
+        @keyframes blinkGreen {
+            0%,100% { opacity:1; }
+            50% { opacity:0.2; }
+        }
+
+        /* -- 主题选择器 -- */
+        .theme-grid { display:flex; flex-wrap:wrap; gap:8px; }
+        .theme-option {
+            display:flex; flex-direction:column; align-items:center; gap:4px;
+            padding:8px 12px; border:2px solid var(--border); border-radius:8px;
+            cursor:pointer; transition:all .2s; background:var(--raised);
+            min-width:90px;
+        }
+        .theme-option:hover { border-color:var(--accent); }
+        .theme-option.theme-selected { border-color:var(--accent); box-shadow:0 0 8px var(--accent); }
+        .theme-swatches { display:flex; gap:2px; }
+        .theme-swatches span { width:12px; height:12px; border-radius:50%; display:inline-block; border:1px solid var(--border); }
+
+        /* ===== 主体 ===== */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ===== 左侧栏 ===== */
+        .sidebar {
+            width: 300px;
+            min-width: 300px;
+            background: var(--bg);
+            border-right: 1px solid var(--border);
+            padding: 16px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .sidebar h2 {
+            font-size: 14px;
+            color: var(--accent);
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar .section {
+            margin-bottom: 16px;
+        }
+
+        .sidebar label {
+            display: block;
+            font-size: 12px;
+            color: var(--comment);
+            margin-bottom: 4px;
+        }
+
+        .sidebar select,
+        .sidebar input {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            background: #0d1117;
+            color: #e6edf3;
+            font-size: 13px;
+            outline: none;
+            transition: border .2s;
+        }
+
+        .sidebar select:focus,
+        .sidebar input:focus {
+            border-color: #58a6ff;
+        }
+
+        .sidebar select option {
+            background: var(--bg);
+        }
+
+        /* 自定义下拉框 */
+        .custom-select {
+            position: relative;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .custom-select .select-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 2px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.4;
+            transition: border .2s;
+        }
+
+        .custom-select .select-trigger:hover {
+            border-color: var(--comment);
+        }
+
+        .custom-select.open .select-trigger {
+            border-color: #58a6ff;
+            border-radius: 6px 6px 0 0;
+        }
+
+        .custom-select .select-trigger .arrow {
+            color: var(--comment);
+            font-size: 20px;
+            line-height: 1;
+            transition: transform .2s;
+        }
+
+        .custom-select.open .select-trigger .arrow {
+            transform: rotate(180deg);
+        }
+
+        .custom-select .select-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--raised);
+            border: 1px solid var(--accent);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            z-index: 100;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .custom-select.open .select-dropdown {
+            display: block;
+        }
+
+        .custom-select .select-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            font-size: 13px;
+            color: var(--text);
+            transition: background .15s;
+        }
+
+        .custom-select .select-item:hover {
+            background: var(--border);
+        }
+
+        .custom-select .select-item.selected {
+            color: var(--accent);
+        }
+
+        .custom-select .select-item .del-btn {
+            background: none;
+            border: none;
+            color: var(--comment);
+            cursor: pointer;
+            font-size: 14px;
+            padding: 0 4px;
+            line-height: 1;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+
+        .custom-select .select-item .del-btn:hover {
+            color: var(--danger);
+            background: var(--border);
+        }
+
+        .custom-select .select-item .edit-btn {
+            background: none;
+            border: none;
+            color: var(--comment);
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0 4px;
+            line-height: 1;
+            border-radius: 6px;
+            flex-shrink: 0;
+            margin-right: 2px;
+        }
+
+        .custom-select .select-item .edit-btn:hover {
+            color: var(--accent);
+            background: var(--border);
+        }
+
+        .custom-select .select-empty {
+            padding: 6px 10px;
+            font-size: 13px;
+            color: var(--comment);
+        }
+
+        /* 内联/小型自定义下拉 */
+        .custom-select-inline {
+            display: inline-flex;
+            vertical-align: middle;
+        }
+
+        .custom-select-inline .select-trigger {
+            padding: 4px 8px;
+            font-size: 12px;
+            width: auto;
+        }
+
+        .custom-select-inline .select-trigger .arrow {
+            font-size: 18px;
+            line-height: 1;
+            margin-left: 4px;
+        }
+
+        .custom-select-inline .select-item {
+            font-size: 12px;
+            padding: 4px 8px;
+        }
+
+        .custom-select-inline .select-dropdown {
+            min-width: 100%;
+            width: auto;
+            white-space: nowrap;
+        }
+
+        .custom-select-disabled .select-trigger {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .custom-select-disabled .select-trigger:hover {
+            border-color: #21262d;
+        }
+
+        .sidebar .inline-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .sidebar .inline-group>* {
+            flex: 1;
+        }
+
+        .sidebar .checkbox-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .sidebar .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .sidebar .checkbox-group input[type="checkbox"] {
+            width: auto;
+            accent-color: #58a6ff;
+        }
+
+        /* ===== 按钮 ===== */
+        .btn {
+            padding: 4px 16px;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all .2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            line-height: 1.4;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            background: color-mix(in srgb, var(--accent) 80%, white);
+        }
+
+        .btn-primary.connected {
+            background: var(--border);
+            color: var(--text);
+            border-color: var(--accent);
+        }
+
+        .btn-primary.connected:hover {
+            background: color-mix(in srgb, var(--border) 80%, var(--text));
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 13px;
+        }
+
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: color-mix(in srgb, var(--border) 80%, var(--text));
+        }
+
+        /* ===== 统计 ===== */
+        .counter-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--comment);
+            padding: 6px 0;
+            border-top: 1px solid var(--border);
+            margin-top: 8px;
+        }
+
+        .counter-row span {
+            font-weight: 600;
+            color: #e6edf3;
+        }
+
+        /* ===== 右侧数据区 ===== */
+        .content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow: hidden;
+            gap: 12px;
+        }
+
+        .rx-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+
+        .section-header h3 {
+            font-size: 13px;
+            color: var(--accent);
+        }
+
+        .section-header .toolbar {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-end;
+        }
+
+        .section-header .toolbar .tb-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        /* -- 接收框 -- */
+        .rx-area {
+            flex: 1;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            min-height: 0;
+            resize: none;
+            outline: none;
+            color: #e6edf3;
+        }
+
+        .rx-area .timestamp {
+            color: var(--comment);
+            font-size: 11px;
+        }
+
+        .rx-area .rx-hex {
+            color: var(--text);
+        }
+
+        .rx-area .rx-text {
+            color: var(--text);
+        }
+
+        .rx-area .rx-arrow {
+            color: var(--accent);
+        }
+
+        /* -- 数据标签面板 -- */
+        .rx-data-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+
+        .rx-data-panel .dp-item {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            box-sizing: border-box;
+            width: calc((100% - 24px) / 5);
+            min-width: 120px;
+            flex-shrink: 0;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 2px;
+            font-size: 12px;
+            flex-wrap: nowrap;
+            overflow: hidden;
+        }
+
+        .rx-data-panel .dp-item .dp-name {
+            color: var(--comment);
+            white-space: nowrap;
+            font-size: 11px;
+            padding: 0 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 1;
+        }
+
+        .rx-data-panel .dp-item .dp-val {
+            width: 30px;
+            background: transparent;
+            border: none;
+            color: var(--accent);
+            font-size: 11px;
+            padding: 1px 2px;
+            text-align: center;
+            outline: none;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            flex-shrink: 0;
+        }
+
+        .rx-data-panel .dp-item .dp-new-inp {
+            flex: 1;
+            min-width: 30px;
+            background: transparent;
+            border: none;
+            color: #e6edf3;
+            font-size: 11px;
+            padding: 2px 4px;
+            outline: none;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        }
+
+        .rx-data-panel .dp-item .dp-bar-wrap {
+            flex: 1;
+            min-width: 20px;
+            height: 16px;
+            background: var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-right: 4px;
+            width: 0;
+        }
+
+        .rx-data-panel .dp-item .dp-bar-wrap.dp-bar-hide {
+            display: none;
+        }
+
+        .rx-data-panel .dp-item .dp-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 6px;
+            transition: width .15s;
+        }
+
+        .rx-data-panel .dp-item .dp-led {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            transition: background .15s;
+        }
+
+        .rx-data-panel .dp-item .dp-led.led-on {
+            background: var(--success);
+            box-shadow: 0 0 6px var(--success);
+        }
+
+        .rx-data-panel .dp-item .dp-led.led-off {
+            background: var(--danger);
+            box-shadow: 0 0 6px var(--danger);
+        }
+
+        /* -- 曲线点图面板 -- */
+        .rx-chart-panel {
+            width:0; min-width:0; overflow-y:auto; overflow-x:hidden;
+            display:flex; flex-wrap:wrap; align-content:flex-start;
+            gap:4px; transition:min-width .2s, width .2s;
+        }
+        .rx-chart-panel.visible {
+            min-width:400px; width:33.33%;
+        }
+        .rx-chart-item {
+            background:var(--raised); border:1px solid var(--border);
+            border-radius:6px; position:relative;
+            display:flex; flex-direction:column;
+        }
+        .rx-chart-item .chart-titlebar {
+            display:flex; align-items:center; gap:4px;
+            height:30px; flex-shrink:0; padding:0 6px;
+            position:relative; z-index:2;
+        }
+        .rx-chart-item canvas {
+            width:100%; flex:1; display:block; min-height:0;
+        }
+        /* 自适应平铺：根据图表数量 */
+        .cc-1 .rx-chart-item { width:100%; height:100%; }
+        .cc-2 .rx-chart-item { width:100%; height:calc(50% - 2px); }
+        .cc-3 .rx-chart-item { width:100%; height:calc(33.33% - 3px); }
+        .cc-4 .rx-chart-item { width:calc(50% - 2px); height:calc(50% - 2px); }
+        .cc-5 .rx-chart-item,
+        .cc-6 .rx-chart-item { width:calc(50% - 2px); height:calc(33.33% - 3px); }
+        .rx-chart-item .chart-name {
+            font-size:11px; color:var(--comment);
+            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+            flex-shrink:0;
+        }
+        .rx-chart-item .chart-maxpts-label {
+            font-size:10px; color:var(--comment); white-space:nowrap;
+            flex-shrink:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+        }
+        .rx-chart-item .chart-titlebar-spacer {
+            flex:1; min-width:4px;
+        }
+        .rx-chart-item .chart-del {
+            border:none; border-radius:6px; cursor:pointer;
+            font-size:11px; padding:4px 6px; min-width:28px;
+            background:var(--danger); color:#fff; line-height:1.4;
+            text-align:center; transition:opacity .15s;
+            flex-shrink:0;
+        }
+        .rx-chart-item .chart-del:hover { opacity:0.8; }
+        .rx-chart-item .chart-drag-handle {
+            cursor:grab; color:var(--comment); font-size:12px;
+            line-height:1; padding:0 2px; user-select:none;
+            flex-shrink:0;
+        }
+        .rx-chart-item .chart-drag-handle:active { cursor:grabbing; }
+        .rx-chart-item.drag-over,
+        .dp-item.drag-over,
+        .qs-item.drag-over { border-color:var(--accent) !important; box-shadow:0 0 8px rgba(88,166,255,.3) !important; }
+        .dp-drag, .qs-drag {
+            cursor:grab; color:var(--comment); font-size:11px;
+            line-height:1; padding:0 2px; user-select:none; flex-shrink:0;
+        }
+        .dp-drag:active, .qs-drag:active { cursor:grabbing; }
+        @keyframes flashGreen {
+            0% { box-shadow: inset 0 0 0 1px #3fb950; background:rgba(63,185,80,0.15); }
+            100% { box-shadow: none; background:transparent; }
+        }
+        .qs-item input.flash-empty {
+            animation: flashGreen .6s ease-out;
+        }
+
+        /* ===== 模态弹窗 ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.6);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-box {
+            background: #161b22;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            padding: 20px;
+            width: 400px;
+            box-sizing: border-box;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e6edf3;
+            margin-bottom: 12px;
+        }
+
+        .modal-body {
+            font-size: 13px;
+            color: #8b949e;
+            margin-bottom: 16px;
+            line-height: 1.6;
+        }
+
+        .modal-body input,
+        .modal-body select {
+            width: 100%;
+            padding: 6px 10px;
+            margin-top: 8px;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            background: #0d1117;
+            color: #e6edf3;
+            font-size: 13px;
+            outline: none;
+            box-sizing: border-box;
+        }
+
+        .modal-body input:focus,
+        .modal-body select:focus {
+            border-color: #58a6ff;
+        }
+
+        .modal-body select option {
+            background: #0d1117;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        /* -- 发送区 -- */
+        .tx-section {
+            flex-shrink: 0;
+        }
+
+        .tx-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .tx-row textarea {
+            flex: 1;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 13px;
+            color: var(--text);
+            resize: none;
+            outline: none;
+            min-height: 60px;
+            max-height: 120px;
+        }
+
+        .tx-row textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .tx-options {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tx-options label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .tx-options input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+
+        .tx-options select {
+            padding: 6px 6px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            outline: none;
+        }
+
+        .tx-right {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .tx-right .btn {
+            min-width: 70px;
+        }
+
+        /* -- 快捷发送 -- */
+        .quick-send-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 6px;
+            max-height: 160px;
+            overflow-y: auto;
+        }
+
+        .quick-send-grid .qs-item {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            box-sizing: border-box;
+            width: calc((100% - 24px) / 5);
+            min-width: 120px;
+            flex-shrink: 0;
+            background: var(--raised);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 2px;
+            overflow: hidden;
+        }
+
+        .quick-send-grid .qs-item input {
+            flex: 1;
+            min-width: 30px;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 11px;
+            padding: 2px 4px;
+            outline: none;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            width: 0;
+        }
+
+        .quick-send-grid .qs-item input:focus {
+            color: var(--accent);
+        }
+
+        /* 小型操作按钮统一样式：发蓝 ✓绿 ✕红 */
+        .qs-send,
+        .qs-del,
+        .dp-ok,
+        .dp-del {
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 4px 6px;
+            line-height: 1.4;
+            flex-shrink: 0;
+            min-width: 28px;
+            text-align: center;
+            transition: opacity .15s;
+        }
+
+        .qs-send:hover,
+        .qs-del:hover,
+        .dp-ok:hover,
+        .dp-del:hover {
+            opacity: 0.8;
+        }
+
+        .dp-del {
+            margin-left: auto;
+        }
+
+        .qs-send {
+            background: #58a6ff;
+            color: #0d1117;
+        }
+
+        .dp-ok {
+            background: #3fb950;
+            color: #0d1117;
+        }
+
+        .qs-del,
+        .dp-del {
+            background: #f85149;
+            color: #fff;
+        }
+
+        .quick-send-grid .qs-item .qs-del {
+            background: #f85149;
+            color: #fff;
+        }
+
+        /* 自定义下拉按钮 */
+        .custom-select .select-item .edit-btn,
+        .custom-select .select-item .del-btn {
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 4px 6px;
+            line-height: 1.4;
+            flex-shrink: 0;
+            min-width: 28px;
+            text-align: center;
+        }
+
+        .custom-select .select-item .edit-btn {
+            background: #58a6ff;
+            color: #0d1117;
+        }
+
+        .custom-select .select-item .del-btn {
+            background: #f85149;
+            color: #fff;
+        }
+
+        .custom-select .select-item .edit-btn:hover,
+        .custom-select .select-item .del-btn:hover {
+            opacity: 0.8;
+        }
+
+        /* ===== 滚动条 ===== */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #21262d;
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #30363d;
+        }
+
+        /* ===== 响应式 ===== */
+        @media (max-width:768px) {
+            .sidebar {
+                width: 240px;
+                min-width: 240px;
+            }
+        }
+
+        @media (max-width:600px) {
+            .main {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                min-width: unset;
+                border-right: none;
+                border-bottom: 1px solid #21262d;
+                max-height: 260px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- 顶部标题栏 -->
+    <div class="header">
+        <div style="display:flex;align-items:center;gap:8px;">
+            <h1 data-i18n="title">串口调试助手</h1>
+            <button class="btn-icon" id="btnTheme" data-i18n-title="switchTheme" title="切换主题">🎨</button>
+            <button class="btn-icon" id="btnLang" data-i18n-title="switchLang" title="切换语言">🌐</button>
+        </div>
+        <span class="status-badge disconnected" id="statusBadge" data-i18n="disconnected">未连接</span>
+    </div>
+
+    <!-- 主体 -->
+    <div class="main">
+
+        <!-- ===== 左侧配置栏 ===== -->
+        <div class="sidebar">
+            <h2 data-i18n="portConfig">串口配置</h2>
+
+            <div class="section">
+                <label for="portSelect" data-i18n="port">串口</label>
+                <div style="display:flex; gap:6px; position:relative;">
+                    <div id="portSelect" class="custom-select" style="flex:1;">
+                        <div class="select-trigger" id="portTrigger">
+                            <span id="portPlaceholder" data-i18n="placeholder">— 请选择 —</span>
+                            <span class="arrow">▾</span>
+                        </div>
+                        <div class="select-dropdown" id="portDropdown"></div>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="btnRequest" data-i18n="request">请求</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <label for="baudRate" data-i18n="baudRate">波特率</label>
+                <select id="baudRate">
+                    <option value="300">300</option>
+                    <option value="600">600</option>
+                    <option value="1200">1200</option>
+                    <option value="2400">2400</option>
+                    <option value="4800">4800</option>
+                    <option value="9600">9600</option>
+                    <option value="14400">14400</option>
+                    <option value="19200">19200</option>
+                    <option value="38400">38400</option>
+                    <option value="56000">56000</option>
+                    <option value="57600">57600</option>
+                    <option value="115200" selected>115200</option>
+                    <option value="128000">128000</option>
+                    <option value="256000">256000</option>
+                    <option value="460800">460800</option>
+                    <option value="921600">921600</option>
+                </select>
+            </div>
+
+            <div class="section">
+                <div class="inline-group">
+                    <div>
+                        <label for="dataBits" data-i18n="dataBits">数据位</label>
+                        <select id="dataBits">
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8" selected>8</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="stopBits" data-i18n="stopBits">停止位</label>
+                        <select id="stopBits">
+                            <option value="1" selected>1</option>
+                            <option value="1.5">1.5</option>
+                            <option value="2">2</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="parity" data-i18n="parity">校验位</label>
+                        <select id="parity">
+                            <option value="none" selected>None</option>
+                            <option value="even">Even</option>
+                            <option value="odd">Odd</option>
+                            <option value="mark">Mark</option>
+                            <option value="space">Space</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <label data-i18n="flowCtrl">流控制</label>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" id="flowRts"> <span data-i18n="rts">RTS/CTS</span></label>
+                    <label><input type="checkbox" id="flowDtr"> <span data-i18n="dtr">DTR/DSR</span></label>
+                </div>
+            </div>
+
+            <div class="section">
+                <button class="btn btn-primary" id="btnConnect" data-i18n="openPort">打开串口</button>
+            </div>
+
+            <div class="counter-row">
+                <span>RX: <span id="rxCount">0</span></span>
+                <span>TX: <span id="txCount">0</span></span>
+            </div>
+        </div>
+
+        <!-- ===== 右侧数据区 ===== -->
+        <div class="content">
+
+            <!-- 接收区 -->
+            <div class="rx-section">
+                <div class="section-header">
+                    <h3 data-i18n="rx">接收区</h3>
+                    <div class="toolbar">
+                        <div class="tb-row">
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <span data-i18n="display">显示:</span>
+                                <select id="rxDisplayMode"
+                                    style="font-size:13px;padding:6px 4px;border:1px solid #21262d;border-radius:6px;background:#0d1117;color:#e6edf3;outline:none;">
+                                    <option value="text" selected data-i18n="optText">文本</option>
+                                    <option value="hex" data-i18n="optHex">HEX</option>
+                                    <option value="hexascii" data-i18n="optHexAscii">HEX+ASCII</option>
+                                    <option value="binary" data-i18n="optBinary">二进制</option>
+                                    <option value="octal" data-i18n="optOctal">八进制</option>
+                                    <option value="decimal" data-i18n="optDecimal">十进制</option>
+                                </select>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="rxTimestamp" checked> <span data-i18n="timestamp">时间戳</span>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="rxAutoScroll" checked> <span data-i18n="autoScroll">自动滚动</span>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <span data-i18n="maxLines">最大行:</span>
+                                <select id="rxMaxLines"
+                                    style="font-size:13px;padding:6px 4px;border:1px solid #21262d;border-radius:6px;background:#0d1117;color:#e6edf3;outline:none;">
+                                    <option value="1000">1000</option>
+                                    <option value="2000">2000</option>
+                                    <option value="5000" selected>5000</option>
+                                    <option value="10000">10000</option>
+                                    <option value="0" data-i18n="optUnlimited">不限</option>
+                                </select>
+                            </label>
+                            <button class="btn btn-secondary btn-sm" id="btnClearRx" data-i18n="clearRx">清空接收区</button>
+                            <button class="btn btn-secondary btn-sm" id="btnSaveRx" data-i18n="saveRx">保存接收区</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddLabel" data-i18n="addLabel">+ 标签</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddBar" data-i18n="addBar">+ 进度条</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddLed" data-i18n="addLed">+ LED</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddChart" data-i18n="addChart">+ 曲线点图</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="rx-data-panel" id="rxDataPanel"></div>
+                <div style="display:flex; flex:1; min-height:0; gap:8px;">
+                    <div class="rx-area" id="rxArea" style="flex:1;"></div>
+                    <div class="rx-chart-panel" id="rxChartPanel"></div>
+                </div>
+            </div>
+
+            <!-- 发送区 -->
+            <div class="tx-section">
+                <div class="section-header">
+                    <h3 data-i18n="tx">发送区</h3>
+                    <div class="toolbar">
+                        <div class="tb-row">
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="txHexMode"> <span data-i18n="hexSend">HEX发送</span>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="txAppendNewline" checked> <span data-i18n="appendNewline">追加换行</span>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="txAutoSend"> <span data-i18n="autoSend">自动发送</span>
+                            </label>
+                            <select id="txAutoInterval" disabled>
+                                <option value="100">100ms</option>
+                                <option value="500" selected>500ms</option>
+                                <option value="1000">1000ms</option>
+                                <option value="2000">2000ms</option>
+                                <option value="5000">5000ms</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" id="btnAddQuick" data-i18n="addQuick">+快捷发送</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="quick-send-grid" id="quickSendGrid"></div>
+                <div class="tx-row">
+                    <textarea id="txInput" placeholder="输入要发送的数据…" data-i18n="prefixPlaceholder" data-i18n-type="placeholder"></textarea>
+                    <div class="tx-right">
+                        <button class="btn btn-primary" id="btnSend" disabled data-i18n="send">发送</button>
+                        <button class="btn btn-secondary btn-sm" id="btnClearTx" data-i18n="clear">清空</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ===== 自定义模态弹窗 ===== -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-box" id="modalBox">
+            <div class="modal-title" id="modalTitle"></div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer" id="modalFooter"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        //  状态
+        // ============================================================
+        let port = null;
+        let reader = null;
+        let connected = false;
+        let portList = [];      // 已授权串口列表
+        let rxCounter = 0;
+        let txCounter = 0;
+        let autoSendTimer = null;
+        let keepReading = false;
+        let rxLineBuffer = '';   // 行缓冲：攒够一行再显示
+
+        const els = {
+            portSelect: document.getElementById('portSelect'),
+            portTrigger: document.getElementById('portTrigger'),
+            portPlaceholder: document.getElementById('portPlaceholder'),
+            portDropdown: document.getElementById('portDropdown'),
+            btnRequest: document.getElementById('btnRequest'),
+            baudRate: document.getElementById('baudRate'),
+            dataBits: document.getElementById('dataBits'),
+            stopBits: document.getElementById('stopBits'),
+            parity: document.getElementById('parity'),
+            flowRts: document.getElementById('flowRts'),
+            flowDtr: document.getElementById('flowDtr'),
+            btnConnect: document.getElementById('btnConnect'),
+            statusBadge: document.getElementById('statusBadge'),
+            rxCount: document.getElementById('rxCount'),
+            txCount: document.getElementById('txCount'),
+            rxArea: document.getElementById('rxArea'),
+            txInput: document.getElementById('txInput'),
+            btnSend: document.getElementById('btnSend'),
+            btnClearRx: document.getElementById('btnClearRx'),
+            btnClearTx: document.getElementById('btnClearTx'),
+            btnSaveRx: document.getElementById('btnSaveRx'),
+            btnAddLabel: document.getElementById('btnAddLabel'),
+            btnAddBar: document.getElementById('btnAddBar'),
+            btnAddLed: document.getElementById('btnAddLed'),
+            btnAddChart: document.getElementById('btnAddChart'),
+            btnTheme: document.getElementById('btnTheme'),
+            btnLang: document.getElementById('btnLang'),
+            rxChartPanel: document.getElementById('rxChartPanel'),
+            rxDataPanel: document.getElementById('rxDataPanel'),
+            rxDisplayMode: document.getElementById('rxDisplayMode'),
+            rxTimestamp: document.getElementById('rxTimestamp'),
+            rxAutoScroll: document.getElementById('rxAutoScroll'),
+            rxMaxLines: document.getElementById('rxMaxLines'),
+            txHexMode: document.getElementById('txHexMode'),
+            txAppendNewline: document.getElementById('txAppendNewline'),
+            txAutoSend: document.getElementById('txAutoSend'),
+            txAutoInterval: document.getElementById('txAutoInterval'),
+            btnAddQuick: document.getElementById('btnAddQuick'),
+            quickSendGrid: document.getElementById('quickSendGrid'),
+        };
+
+        // ============================================================
+        //  工具函数
+        // ============================================================
+        function getTimestamp() {
+            const d = new Date();
+            const h = String(d.getHours()).padStart(2, '0');
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            const ms = String(d.getMilliseconds()).padStart(3, '0');
+            return `${h}:${m}:${s}.${ms}`;
+        }
+
+        function arrayBufferToHex(buf) {
+            const bytes = new Uint8Array(buf);
+            return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+        }
+
+        function arrayBufferToText(buf) {
+            const bytes = new Uint8Array(buf);
+            // 尝试用 TextDecoder 解码，替换非法字符
+            const decoder = new TextDecoder('utf-8', { fatal: false });
+            return decoder.decode(buf);
+        }
+
+        function getDeviceName(vid, pid) {
+            if (vid && pid) {
+                return `(${vid.toString(16).toUpperCase()},${pid.toString(16).toUpperCase()})`;
+            }
+            return '(未知)';
+        }
+
+        function hexStringToBytes(hex) {
+            // 移除空格、0x 前缀等
+            const clean = hex.replace(/0x/gi, '').replace(/\s+/g, '');
+            if (clean.length === 0) return null;
+            if (clean.length % 2 !== 0) return null;
+            const bytes = [];
+            for (let i = 0; i < clean.length; i += 2) {
+                const byte = parseInt(clean.substring(i, i + 2), 16);
+                if (isNaN(byte)) return null;
+                bytes.push(byte);
+            }
+            return new Uint8Array(bytes);
+        }
+
+        // ============================================================
+        //  显示格式转换
+        // ============================================================
+        function formatBinary(buf) {
+            const bytes = new Uint8Array(buf);
+            return Array.from(bytes).map(b =>
+                b.toString(2).padStart(8, '0')
+            ).join(' ');
+        }
+
+        function formatOctal(buf) {
+            const bytes = new Uint8Array(buf);
+            return Array.from(bytes).map(b =>
+                '0' + b.toString(8).padStart(3, '0')
+            ).join(' ');
+        }
+
+        function formatDecimal(buf) {
+            const bytes = new Uint8Array(buf);
+            return Array.from(bytes).map(b =>
+                String(b).padStart(3, ' ')
+            ).join(' ');
+        }
+
+        function formatHexAscii(buf) {
+            const bytes = new Uint8Array(buf);
+            const hexPart = Array.from(bytes).map(b =>
+                b.toString(16).padStart(2, '0').toUpperCase()
+            ).join(' ');
+
+            const asciiPart = Array.from(bytes).map(b =>
+                b >= 0x20 && b <= 0x7E ? String.fromCharCode(b) : '.'
+            ).join('');
+
+            // 每行最多显示16字节，分组排版
+            const bytesPerLine = 16;
+            const lines = [];
+            for (let i = 0; i < bytes.length; i += bytesPerLine) {
+                const chunk = bytes.slice(i, i + bytesPerLine);
+                const hexChunk = Array.from(chunk).map(b =>
+                    b.toString(16).padStart(2, '0').toUpperCase()
+                ).join(' ');
+                const asciiChunk = Array.from(chunk).map(b =>
+                    b >= 0x20 && b <= 0x7E ? String.fromCharCode(b) : '.'
+                ).join('');
+                // 补齐 HEX 部分使 ASCII 对齐
+                const paddedHex = hexChunk.padEnd(bytesPerLine * 3 - 1, ' ');
+                lines.push(`${paddedHex}  ${asciiChunk}`);
+            }
+            return lines.join('\n');
+        }
+
+        function formatData(buf, mode) {
+            switch (mode) {
+                case 'hex': return arrayBufferToHex(buf);
+                case 'binary': return formatBinary(buf);
+                case 'octal': return formatOctal(buf);
+                case 'decimal': return formatDecimal(buf);
+                case 'hexascii': return formatHexAscii(buf);
+                case 'text':
+                default: return arrayBufferToText(buf);
+            }
+        }
+
+        function appendRx(data) {
+            const el = els.rxArea;
+            const mode = els.rxDisplayMode.value;
+            const showTs = els.rxTimestamp.checked;
+            const cssClass = mode === 'hex' || mode === 'hexascii' ? 'rx-hex' : 'rx-text';
+
+            // 文本模式：行缓存，攒够 \n 结尾的完整行才显示，确保一行只有一个时间戳
+            if (mode === 'text') {
+                const text = arrayBufferToText(data);
+                rxLineBuffer += text;
+
+                const lines = rxLineBuffer.split('\n');
+                rxLineBuffer = lines.pop() || '';  // 最后一个可能是未完成行，留到下次
+
+                for (const line of lines) {
+                    if (line.trim() === '') continue; // 跳过空白行（空行、\r、\n 等）
+                    const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    let html = '';
+                    if (showTs) {
+                        html += `<span class="timestamp">[${getTimestamp()}]</span> `;
+                    }
+                    html += `<span class="${cssClass}">${escaped}</span>`;
+                    el.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
+                    // 文本模式：每收到一行完整数据就刷新图表
+                    onNewDataLine(line);
+                }
+            } else {
+                // 非文本模式：直接显示，每块数据一个时间戳
+                const text = formatData(data, mode);
+                const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                let html = '';
+                if (showTs) {
+                    html += `<span class="timestamp">[${getTimestamp()}]</span> `;
+                }
+                html += `<span class="${cssClass}">${escaped}</span>`;
+                el.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
+            }
+
+            trimRx();
+
+            if (els.rxAutoScroll.checked) {
+                el.scrollTop = el.scrollHeight;
+            }
+
+            rxCounter += data.byteLength;
+            els.rxCount.textContent = rxCounter;
+        }
+
+        function trimRx() {
+            const max = parseInt(els.rxMaxLines.value);
+            if (max <= 0) return;
+            const el = els.rxArea;
+            while (el.children.length > max) {
+                el.removeChild(el.firstChild);
+            }
+        }
+
+        // ============================================================
+        //  数据标签 & 进度条
+        // ============================================================
+        let dataLabels = [];
+        let dataLabelTimer = null;
+        let chartItems = [];
+        const MAX_CHARTS = 6;
+        const CHART_MAX_POINTS_OPTIONS = [10,20,50,100,200,500,1000];
+
+        function addLabelEditor(mode) {
+            const placeholder = t('prefixPlaceholder');
+            els.rxDataPanel.classList.add('visible');
+            const el = document.createElement('div');
+            el.className = 'dp-item dp-editing';
+            el.innerHTML = '<input class="dp-new-inp" type="text" placeholder="' + placeholder + '" spellcheck="false">'
+                + '<button class="dp-ok">\u2713</button>'
+                + '<button class="dp-del">\uD83D\uDDD1</button>';
+            el.querySelector('.dp-ok').addEventListener('click', async () => {
+                const inp = el.querySelector('.dp-new-inp');
+                const prefix = inp.value.trim();
+                if (prefix.length < 2) { modalAlert(t('prefixTooShort')); return; }
+                if (dataLabels.some(d => d.prefix === prefix)) {
+                    modalAlert(t('alreadyExists'));
+                    return;
+                }
+                // 提取初值，跟踪范围
+                const text = els.rxArea.textContent;
+                const lines = text.split('\n');
+                let val = 0, vmin = 0, vmax = 0;
+                const extractFn = mode === 'led' ? extractLedVal : extractVal;
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    const v = extractFn(lines[i], prefix);
+                    if (v !== null) {
+                        val = v;
+                        vmin = Math.min(vmin, val);
+                        vmax = Math.max(vmax, val);
+                        break;
+                    }
+                }
+                const idx = dataLabels.length;
+                if (mode === 'led') {
+                    // LED 配置弹窗
+                    // 内联绑定切换 —— 先设置好切换逻辑再显示弹窗
+                    const cfg = await (() => {
+                        // 用同步方式设置 modal 内容，然后返回 promise
+                        modal.title.textContent = t('ledConfig');
+                        modal.body.innerHTML = '<div style="margin-bottom:8px;">'
+                            + '<label style="display:block;margin-bottom:4px;color:#8b949e;">' + t('mode') + '</label>'
+                            + '<select id="modalLedMode" style="margin-bottom:8px;">'
+                            + '<option value="bool">' + t('ledModeBool') + '</option>'
+                            + '<option value="threshold">' + t('ledModeThreshold') + '</option>'
+                            + '</select>'
+                            + '<input id="modalLedThreshold" type="text" placeholder="' + t('thresholdPlaceholder') + '" disabled>'
+                            + '</div>';
+                        modal.footer.innerHTML = '';
+                        const cancelBtn = document.createElement('button');
+                        cancelBtn.className = 'btn btn-secondary btn-sm';
+                        cancelBtn.textContent = t('cancel');
+                        cancelBtn.style.minWidth = '70px';
+                        modal.footer.appendChild(cancelBtn);
+                        const confirmBtn = document.createElement('button');
+                        confirmBtn.className = 'btn btn-primary btn-sm';
+                        confirmBtn.textContent = t('confirm');
+                        confirmBtn.style.minWidth = '70px';
+                        modal.footer.appendChild(confirmBtn);
+                        modal.box.style.width = '380px';
+                        // 绑定模式切换逻辑
+                        const sel = modal.body.querySelector('#modalLedMode');
+                        const inp = modal.body.querySelector('#modalLedThreshold');
+                        const toggleTh = () => {
+                            const isTh = sel.value === 'threshold';
+                            inp.style.display = isTh ? '' : 'none';
+                            if (isTh) inp.focus();
+                        };
+                        sel.onchange = toggleTh;
+                        toggleTh(); // 默认布尔模式隐藏阈值输入
+                        // 弹窗 Promise
+                        return new Promise((resolve) => {
+                            modal.overlay.classList.add('open');
+                            const firstInput = modal.body.querySelector('input,select');
+                            if (firstInput) setTimeout(() => firstInput.focus(), 50);
+                            const cleanup = () => {
+                                cancelBtn.removeEventListener('click', onCancel);
+                                confirmBtn.removeEventListener('click', onConfirm);
+                                document.removeEventListener('keydown', onKey);
+                                modal.overlay.removeEventListener('click', onOverlay);
+                            };
+                            const onCancel = () => { cleanup(); closeModal(); resolve(null); };
+                            const onConfirm = () => {
+                                const m = sel.value;
+                                if (m === 'threshold') {
+                                    const t = parseFloat(inp.value);
+                                    if (isNaN(t)) { inp.focus(); return; }
+                                    cleanup(); closeModal(); resolve({ ledMode: 'threshold', threshold: t });
+                                } else {
+                                    cleanup(); closeModal(); resolve({ ledMode: 'bool', threshold: 0 });
+                                }
+                            };
+                            const onKey = (e) => {
+                                if (e.key === 'Enter') onConfirm();
+                                if (e.key === 'Escape') onCancel();
+                            };
+                            const onOverlay = (e) => { if (e.target === modal.overlay) onCancel(); };
+                            cancelBtn.addEventListener('click', onCancel);
+                            confirmBtn.addEventListener('click', onConfirm);
+                            document.addEventListener('keydown', onKey);
+                            modal.overlay.addEventListener('click', onOverlay);
+                        });
+                    })();
+                    if (!cfg) { el.remove(); return; }
+                    dataLabels.push({ prefix, value: val, min: vmin, max: vmax, mode, ledMode: cfg.ledMode, threshold: cfg.threshold });
+                } else {
+                    dataLabels.push({ prefix, value: val, min: vmin, max: vmax, mode });
+                }
+                // 切换为只读
+                el.classList.remove('dp-editing');
+                buildLabelElement(el, dataLabels[idx], idx);
+                // 新创建的标签也加上拖拽（仅手柄）
+                const handle = el.querySelector('.dp-drag');
+                const panel = els.rxDataPanel;
+                handle.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', idx);
+                    el.style.opacity = '0.4';
+                });
+                handle.addEventListener('dragend', () => {
+                    el.style.opacity = '';
+                    panel.querySelectorAll('.dp-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+                });
+                el.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drag-over'); });
+                el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+                el.addEventListener('drop', (e) => {
+                    e.preventDefault(); el.classList.remove('drag-over');
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIdx = idx;
+                    if (fromIdx !== toIdx) {
+                        const [moved] = dataLabels.splice(fromIdx, 1);
+                        dataLabels.splice(toIdx, 0, moved);
+                        saveSettings();
+                        renderDataPanel();
+                    }
+                });
+                startLabelTimer();
+                saveSettings();
+            });
+            el.querySelector('.dp-del').addEventListener('click', () => {
+                el.remove();
+                if (!els.rxDataPanel.hasChildNodes()) els.rxDataPanel.classList.remove('visible');
+            });
+            els.rxDataPanel.appendChild(el);
+            el.querySelector('.dp-new-inp').focus();
+        }
+
+        function buildLabelElement(el, item, idx) {
+            const h = escapeHtml(item.prefix);
+            const isBar = item.mode === 'progress';
+            const isLed = item.mode === 'led';
+            el.className = 'dp-item';
+            el.dataset.idx = idx;
+            if (isLed) {
+                const on = getLedState(item.value, item);
+                el.innerHTML = '<span class="dp-drag" draggable="true">\u283F</span>'
+                    + '<span class="dp-name">' + h + ':</span>'
+                    + '<span class="dp-led led-' + (on ? 'on' : 'off') + '"></span>'
+                    + '<input class="dp-val" type="text" value="' + item.value + '" readonly spellcheck="false">'
+                    + '<div class="dp-bar-wrap dp-bar-hide"><div class="dp-bar-fill"></div></div>'
+                    + '<button class="dp-del">\uD83D\uDDD1</button>';
+            } else {
+                el.innerHTML = '<span class="dp-drag" draggable="true">\u283F</span>'
+                    + '<span class="dp-name">' + h + ':</span>'
+                    + '<input class="dp-val" type="text" value="' + item.value + '" readonly spellcheck="false">'
+                    + '<div class="dp-bar-wrap' + (isBar ? '' : ' dp-bar-hide') + '"><div class="dp-bar-fill" style="width:0%"></div></div>'
+                    + '<button class="dp-del">\uD83D\uDDD1</button>';
+            }
+            el.querySelector('.dp-del').addEventListener('click', () => removeDataLabel(idx));
+            updateBar(el, item);
+        }
+
+        function getLedState(val, item) {
+            if (item.ledMode === 'bool') return val !== 0;
+            return val > item.threshold;
+        }
+
+        function renderDataPanel() {
+            const panel = els.rxDataPanel;
+            const editors = panel.querySelectorAll('.dp-editing');
+            panel.innerHTML = '';
+            editors.forEach(el => panel.appendChild(el));
+            if (dataLabels.length === 0 && editors.length === 0) {
+                panel.classList.remove('visible');
+                return;
+            }
+            panel.classList.add('visible');
+            for (let i = 0; i < dataLabels.length; i++) {
+                const el = document.createElement('div');
+                buildLabelElement(el, dataLabels[i], i);
+                // 拖拽排序（仅手柄可拖）
+                const handle = el.querySelector('.dp-drag');
+                handle.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', i);
+                    el.style.opacity = '0.4';
+                });
+                handle.addEventListener('dragend', () => {
+                    el.style.opacity = '';
+                    panel.querySelectorAll('.dp-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+                });
+                el.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    el.classList.add('drag-over');
+                });
+                el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+                el.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    el.classList.remove('drag-over');
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIdx = i;
+                    if (fromIdx !== toIdx) {
+                        const [moved] = dataLabels.splice(fromIdx, 1);
+                        dataLabels.splice(toIdx, 0, moved);
+                        saveSettings();
+                        renderDataPanel();
+                    }
+                });
+                panel.appendChild(el);
+            }
+        }
+
+        function removeDataLabel(idx) {
+            dataLabels.splice(idx, 1);
+            saveSettings();
+            if (dataLabels.length === 0) {
+                stopLabelTimer();
+                renderDataPanel();
+            } else {
+                renderDataPanel();
+            }
+        }
+
+        function updateBar(el, item) {
+            if (item.mode !== 'progress' || !el) return;
+            const fill = el.querySelector('.dp-bar-fill');
+            if (!fill) return;
+            const range = item.max - item.min || 1;
+            let pct = ((item.value - item.min) / range) * 100;
+            pct = Math.max(0, Math.min(100, pct));
+            fill.style.width = pct + '%';
+        }
+
+        function escapeRegex(s) {
+            return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // 新数据到达时刷新曲线点图
+        function onNewDataLine(line) {
+            if (chartItems.length === 0) return;
+            for (const item of chartItems) {
+                if (!item.canvas) continue;
+                const v = extractVal(line, item.prefix);
+                if (v !== null) {
+                    item.values.push(v);
+                    if (item.values.length > (item.maxPoints || 50)) item.values.shift();
+                    drawChart(item);
+                }
+            }
+        }
+
+        // 在行中查找前缀，提取行内最后一个数字
+        function extractVal(line, prefix) {
+            if (!line.includes(prefix)) return null;
+            const nums = line.match(/-?\d+\.?\d*/g);
+            if (!nums || nums.length === 0) return null;
+            return parseFloat(nums[nums.length - 1]);
+        }
+
+        // LED 专用：提取数值，并识别 true/false 文本
+        function extractLedVal(line, prefix) {
+            if (!line.includes(prefix)) return null;
+            const lower = line.toLowerCase();
+            // 识别 true/false 文本
+            const after = lower.slice(lower.indexOf(prefix.toLowerCase()) + prefix.length);
+            if (/true/.test(after)) return 1;
+            if (/false/.test(after)) return 0;
+            // 回退到数字提取
+            return extractVal(line, prefix);
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function updateDataPanel() {
+            if (dataLabels.length === 0) return;
+            const text = els.rxArea.textContent;
+            const lines = text.split('\n');
+            const lastLines = lines.slice(-50);
+            for (let i = 0; i < dataLabels.length; i++) {
+                const item = dataLabels[i];
+                const fn = item.mode === 'led' ? extractLedVal : extractVal;
+                for (let j = lastLines.length - 1; j >= 0; j--) {
+                    const v = fn(lastLines[j], item.prefix);
+                    if (v !== null) {
+                        item.value = v;
+                        if (v < item.min) item.min = v;
+                        if (v > item.max) item.max = v;
+                        break;
+                    }
+                }
+                const dp = els.rxDataPanel.querySelector('.dp-item[data-idx="' + i + '"]');
+                if (!dp) continue;
+                const inp = dp.querySelector('.dp-val');
+                if (inp) inp.value = item.value;
+                // LED 颜色更新
+                if (item.mode === 'led') {
+                    const led = dp.querySelector('.dp-led');
+                    if (led) {
+                        led.className = 'dp-led led-' + (getLedState(item.value, item) ? 'on' : 'off');
+                    }
+                }
+                updateBar(dp, item);
+            }
+        }
+
+        function startLabelTimer() {
+            if (dataLabelTimer) clearInterval(dataLabelTimer);
+            dataLabelTimer = setInterval(updateDataPanel, 200);
+        }
+        function stopLabelTimer() {
+            if (dataLabelTimer) { clearInterval(dataLabelTimer); dataLabelTimer = null; }
+        }
+
+        // 从存储恢复
+        function addLabelFromStorage(item) {
+            const text = els.rxArea.textContent;
+            const lines = text.split('\n');
+            let val = 0, vmin = 0, vmax = 0;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                const fn = item.mode === 'led' ? extractLedVal : extractVal;
+                const v = fn(lines[i], item.prefix);
+                if (v !== null) {
+                    val = v;
+                    vmin = Math.min(vmin, val);
+                    vmax = Math.max(vmax, val);
+                    break;
+                }
+            }
+            item.value = val; item.min = vmin; item.max = vmax;
+            const idx = dataLabels.length;
+            dataLabels.push(item);
+            const el = document.createElement('div');
+            buildLabelElement(el, item, idx);
+            // 恢复的标签也加上拖拽
+            const handle = el.querySelector('.dp-drag');
+            const panel = els.rxDataPanel;
+            handle.addEventListener('dragstart', (e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', idx);
+                el.style.opacity = '0.4';
+            });
+            handle.addEventListener('dragend', () => {
+                el.style.opacity = '';
+                panel.querySelectorAll('.dp-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+            });
+            el.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drag-over'); });
+            el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+            el.addEventListener('drop', (e) => {
+                e.preventDefault(); el.classList.remove('drag-over');
+                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                const toIdx = idx;
+                if (fromIdx !== toIdx) {
+                    const [moved] = dataLabels.splice(fromIdx, 1);
+                    dataLabels.splice(toIdx, 0, moved);
+                    saveSettings();
+                    renderDataPanel();
+                }
+            });
+            els.rxDataPanel.appendChild(el);
+            els.rxDataPanel.classList.add('visible');
+        }
+
+        // ============================================================
+        //  曲线点图
+        // ============================================================
+        function addChartEditor() {
+            // 在图表面板中创建一个临时的卡片编辑器（遵循自动平铺规则）
+            els.rxChartPanel.classList.add('visible');
+            const el = document.createElement('div');
+            el.className = 'rx-chart-item';
+            el.style.display = 'flex';
+            el.style.flexDirection = 'column';
+            el.style.height = 'auto';
+            el.style.flex = '0 0 auto';
+            el.style.width = '100%';
+            el.innerHTML = '<div class="chart-titlebar" style="display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;padding:0 6px;">'
+                + '<span style="color:#30363d;font-size:12px;cursor:default;">\u283F</span>'
+                + '<input type="text" placeholder="' + t('prefixPlaceholder') + '" spellcheck="false" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
+                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
+                + '</div>';
+            const inp = el.querySelector('input');
+            const okBtn = el.querySelectorAll('button')[0];
+            const delBtn = el.querySelectorAll('button')[1];
+            const done = () => {
+                const prefix = inp.value.trim();
+                if (prefix.length < 2) { modalAlert(t('prefixTooShort')); return; }
+                if (chartItems.some(c => c.prefix === prefix)) { modalAlert(t('alreadyExists')); return; }
+                if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+                el.remove();
+                chartItems.unshift({ prefix, values: [], maxPoints: 50 });
+                renderChartPanel();
+                saveSettings();
+            };
+            okBtn.addEventListener('click', done);
+            delBtn.addEventListener('click', () => {
+                el.remove();
+                if (chartItems.length === 0) {
+                    els.rxChartPanel.classList.remove('visible');
+                    els.rxChartPanel.className = 'rx-chart-panel';
+                }
+            });
+            inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(); });
+            els.rxChartPanel.insertBefore(el, els.rxChartPanel.firstChild);
+            inp.focus();
+        }
+
+        function renderChartPanel() {
+            const panel = els.rxChartPanel;
+            panel.innerHTML = '';
+            if (chartItems.length === 0) { panel.classList.remove('visible'); panel.className = 'rx-chart-panel'; return; }
+            panel.classList.add('visible');
+            panel.className = 'rx-chart-panel visible cc-' + Math.min(chartItems.length, 6);
+            for (let i = 0; i < chartItems.length; i++) {
+                const item = chartItems[i];
+                const div = document.createElement('div');
+                div.className = 'rx-chart-item';
+                div.innerHTML = '<div class="chart-titlebar">'
+                    + '<span class="chart-drag-handle" draggable="true">\u283F</span>'
+                    + '<span class="chart-name">' + escapeHtml(item.prefix) + '</span>'
+                    + '<span class="chart-titlebar-spacer"></span>'
+                    + '<span class="chart-maxpts-label">' + t('chartPts') + '</span>'
+                    + '<select class="chart-maxpts" style="display:none;">'
+                    + CHART_MAX_POINTS_OPTIONS.map(v => '<option value="' + v + '"' + (v === (item.maxPoints || 50) ? ' selected' : '') + '>' + v + '</option>').join('')
+                    + '</select>'
+                    + '<button class="chart-del">\uD83D\uDDD1</button>'
+                    + '</div>';
+                const canvas = document.createElement('canvas');
+                item.canvas = canvas;
+                item.ctx = canvas.getContext('2d');
+                item.el = div;
+                div.appendChild(canvas);
+                div.querySelector('.chart-del').addEventListener('click', () => {
+                    chartItems.splice(i, 1);
+                    saveSettings();
+                    renderChartPanel();
+                });
+                // 拖拽排序（仅手柄可拖）
+                const chartHandle = div.querySelector('.chart-drag-handle');
+                chartHandle.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', i);
+                    div.style.opacity = '0.4';
+                });
+                chartHandle.addEventListener('dragend', () => {
+                    div.style.opacity = '';
+                    document.querySelectorAll('.rx-chart-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+                });
+                div.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    div.classList.add('drag-over');
+                });
+                div.addEventListener('dragleave', () => {
+                    div.classList.remove('drag-over');
+                });
+                div.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    div.classList.remove('drag-over');
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIdx = i;
+                    if (fromIdx !== toIdx) {
+                        const [moved] = chartItems.splice(fromIdx, 1);
+                        chartItems.splice(toIdx, 0, moved);
+                        saveSettings();
+                        renderChartPanel();
+                    }
+                });
+                // 将点数下拉转换为统一自定义风格
+                const ptsSel = div.querySelector('.chart-maxpts');
+                if (ptsSel) {
+                    const cContainer = document.createElement('div');
+                    cContainer.className = 'custom-select';
+                    cContainer.style.cssText = 'font-size:10px;width:44px;';
+                    const cTrigger = document.createElement('div');
+                    cTrigger.className = 'select-trigger';
+                    cTrigger.style.cssText = 'padding:1px 4px;font-size:10px;';
+                    const cText = document.createElement('span');
+                    cText.textContent = ptsSel.options[ptsSel.selectedIndex]?.text || '50';
+                    const cArrow = document.createElement('span');
+                    cArrow.className = 'arrow';
+                    cArrow.textContent = '\u25BE';
+                    cArrow.style.fontSize = '16px';
+                    cTrigger.appendChild(cText);
+                    cTrigger.appendChild(cArrow);
+                    const cDropdown = document.createElement('div');
+                    cDropdown.className = 'select-dropdown';
+                    cDropdown.style.cssText = 'border-radius:0 0 4px 4px;font-size:10px;';
+                    for (const opt of ptsSel.options) {
+                        const cItem = document.createElement('div');
+                        cItem.className = 'select-item' + (opt.selected ? ' selected' : '');
+                        cItem.style.cssText = 'padding:2px 6px;font-size:10px;';
+                        cItem.dataset.value = opt.value;
+                        cItem.textContent = opt.text;
+                        cItem.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            ptsSel.value = opt.value;
+                            cContainer.querySelectorAll('.select-item').forEach(el => el.classList.remove('selected'));
+                            cItem.classList.add('selected');
+                            cText.textContent = opt.text;
+                            closeAllDropdowns();
+                            ptsSel.dispatchEvent(new Event('change', { bubbles: true }));
+                        });
+                        cDropdown.appendChild(cItem);
+                    }
+                    cContainer.appendChild(cTrigger);
+                    cContainer.appendChild(cDropdown);
+                    cTrigger.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const isOpen = cContainer.classList.contains('open');
+                        closeAllDropdowns();
+                        if (!isOpen) cContainer.classList.add('open');
+                    });
+                    const titlebar = div.querySelector('.chart-titlebar');
+                    titlebar.insertBefore(cContainer, titlebar.querySelector('.chart-del'));
+                    ptsSel.addEventListener('change', () => {
+                        item.maxPoints = parseInt(ptsSel.value) || 50;
+                        while (item.values.length > item.maxPoints) item.values.shift();
+                        drawChart(item);
+                        saveSettings();
+                    });
+                }
+                panel.appendChild(div);
+                drawChart(item);
+            }
+        }
+
+        function updateCharts() {
+            if (chartItems.length === 0) return;
+            const text = els.rxArea.textContent;
+            const lines = text.split('\n');
+            const lastLines = lines.slice(-50);
+            for (const item of chartItems) {
+                if (!item.canvas) continue;
+                for (let j = lastLines.length - 1; j >= 0; j--) {
+                    const v = extractVal(lastLines[j], item.prefix);
+                    if (v !== null) {
+                        item.values.push(v);
+                        if (item.values.length > (item.maxPoints || 50)) item.values.shift();
+                        drawChart(item);
+                        break;
+                    }
+                }
+            }
+        }
+
+        function drawChart(item) {
+            if (!item.ctx || !item.canvas) return;
+            const canvas = item.canvas;
+            const ctx = item.ctx;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const w = rect.width, h = rect.height;
+            // 从主题 CSS 变量读取颜色
+            const cBorder = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#21262d';
+            const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
+            const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
+            const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
+            const cText = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e6edf3';
+            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            // 背景
+            ctx.fillStyle = cBg;
+            ctx.fillRect(0, 0, w, h);
+            const values = item.values;
+            if (values.length < 2) {
+                ctx.fillStyle = cComment;
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(t('waiting'), w/2, h/2);
+                return;
+            }
+            const pad = 32;
+            const plotW = w - pad - 4;
+            const plotH = h - pad * 2;
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const range = max - min || 1;
+            // 网格线
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 3]);
+            const gridDiv = 9;
+            for (let i = 1; i < gridDiv; i++) {
+                const x = pad + (plotW / gridDiv) * i;
+                ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
+                const y = pad + (plotH / gridDiv) * i;
+                ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            // 实线边框
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(pad, pad, plotW, plotH);
+            // Y轴标注
+            ctx.fillStyle = cComment;
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            const labelCount = 10;
+            for (let i = 0; i < labelCount; i++) {
+                const val = min + (range / (labelCount - 1)) * i;
+                const y = pad + plotH - (plotH / (labelCount - 1)) * i;
+                const label = val % 1 === 0 ? val.toString() : val.toFixed(1);
+                ctx.fillText(label, pad - 4, y);
+            }
+            // 数据线
+            ctx.strokeStyle = cAccent;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (let i = 0; i < values.length; i++) {
+                const x = pad + plotW - (i / (values.length - 1)) * plotW;
+                const y = pad + plotH - ((values[i] - min) / range) * plotH;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            // 数据红点
+            ctx.fillStyle = cDanger;
+            for (let i = 0; i < values.length; i++) {
+                const x = pad + plotW - (i / (values.length - 1)) * plotW;
+                const y = pad + plotH - ((values[i] - min) / range) * plotH;
+                ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        function addChartFromStorage(prefix, maxPoints) {
+            if (chartItems.length >= MAX_CHARTS) return;
+            chartItems.push({ prefix, values: [], maxPoints: maxPoints || 50 });
+        }
+
+        // 自定义 COM 名称存储（localStorage）
+        function getPortKey(info) {
+            if (info.usbVendorId && info.usbProductId) {
+                return `${info.usbVendorId}:${info.usbProductId}`;
+            }
+            return null;
+        }
+
+        function loadPortNames() {
+            try { return JSON.parse(localStorage.getItem('serial_port_names') || '{}'); } catch { return {}; }
+        }
+
+        function savePortName(key, name) {
+            const names = loadPortNames();
+            names[key] = name;
+            localStorage.setItem('serial_port_names', JSON.stringify(names));
+        }
+
+        function getPortDisplayName(info, index) {
+            const key = getPortKey(info);
+            if (key) {
+                const names = loadPortNames();
+                if (names[key]) return { name: names[key], custom: true };
+            }
+            const realName = info.name || info.comName || null;
+            return { name: realName || `COM${index + 1}`, custom: false };
+        }
+
+        async function refreshPorts() {
+            try {
+                portList = await navigator.serial.getPorts();
+                const dd = els.portDropdown;
+                dd.innerHTML = '';
+                if (portList.length === 0) {
+                    dd.innerHTML = '<div class="select-empty">' + t('noAuthorizedPort') + '</div>';
+                }
+                for (let i = 0; i < portList.length; i++) {
+                    const p = portList[i];
+                    const info = p.getInfo();
+                    const { name: comName, custom } = getPortDisplayName(info, i);
+                    const label = custom ? comName : `${comName} - ${getDeviceName(info.usbVendorId, info.usbProductId)}`;
+                    const item = document.createElement('div');
+                    item.className = 'select-item';
+                    item.dataset.index = i;
+                    item.innerHTML = '<span>' + label + '</span><span style="display:flex;">'
+                        + '<button class="edit-btn" data-idx="' + i + '" title="重命名">\u270E</button>'
+                        + '<button class="del-btn" data-idx="' + i + '" title="删除">\uD83D\uDDD1</button></span>';
+                    // 点击条目选择串口
+                    item.addEventListener('click', (e) => {
+                        if (e.target.closest('button')) return;
+                        selectPort(i);
+                    });
+                    // 点击 ✕ 删除
+                    item.querySelector('.del-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        try {
+                            await portList[i].forget();
+                            if (selectedPortIdx === i) selectedPortIdx = -1;
+                            await refreshPorts();
+                        } catch (err) {
+                            console.error('删除串口失败:', err);
+                        }
+                    });
+                    // 点击 ✎ 重命名
+                    item.querySelector('.edit-btn').addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const key = getPortKey(info);
+                        const { name: cur } = getPortDisplayName(info, i);
+                        const name = await showModal({
+                            title: t('renamePort'),
+                            html: '<input id="modalRenameInput" type="text" value="' + escapeHtml(cur) + '">',
+                            getValue: () => document.getElementById('modalRenameInput').value.trim(),
+                        });
+                        if (name) {
+                            if (key) { savePortName(key, name); }
+                            else { savePortName('_idx_' + i, name); }
+                            refreshPorts();
+                        }
+                    });
+                    dd.appendChild(item);
+                }
+                // 恢复选中状态
+                if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
+                    highlightSelected(selectedPortIdx);
+                } else {
+                    selectedPortIdx = -1;
+                    els.portPlaceholder.textContent = t('placeholder');
+                }
+            } catch (e) {
+                console.warn('获取串口列表失败:', e);
+            }
+        }
+
+        let selectedPortIdx = -1;
+
+        function selectPort(idx) {
+            selectedPortIdx = idx;
+            highlightSelected(idx);
+            closeAllDropdowns();
+            // 选中后直接尝试连接（如果未连接）
+            if (!connected) setTimeout(() => connect(), 50);
+        }
+
+        function highlightSelected(idx) {
+            const items = els.portDropdown.querySelectorAll('.select-item');
+            items.forEach(el => el.classList.remove('selected'));
+            const target = els.portDropdown.querySelector(`.select-item[data-index="${idx}"]`);
+            if (target) {
+                target.classList.add('selected');
+                els.portPlaceholder.textContent = target.querySelector('span').textContent;
+            }
+        }
+
+        function closeAllDropdowns() {
+            document.querySelectorAll('.custom-select.open').forEach(el => el.classList.remove('open'));
+        }
+
+        // 点击触发器打开/关闭下拉
+        els.portTrigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = els.portSelect.classList.contains('open');
+            closeAllDropdowns();
+            if (!isOpen) els.portSelect.classList.add('open');
+        });
+
+        // 点击外部关闭所有下拉
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.custom-select')) {
+                closeAllDropdowns();
+            }
+        });
+
+        // ============================================================
+        //  统一自定义下拉框转换
+        // ============================================================
+        function convertSelectToCustom(selectEl, isInline) {
+            if (!selectEl || selectEl.dataset._converted) return;
+            selectEl.dataset._converted = '1';
+            const container = document.createElement('div');
+            container.className = 'custom-select' + (isInline ? ' custom-select-inline' : '');
+            const trigger = document.createElement('div');
+            trigger.className = 'select-trigger';
+            const textSpan = document.createElement('span');
+            textSpan.textContent = selectEl.options[selectEl.selectedIndex]?.text || selectEl.value;
+            const arrow = document.createElement('span');
+            arrow.className = 'arrow'; arrow.textContent = '\u25BE';
+            trigger.appendChild(textSpan); trigger.appendChild(arrow);
+            const dropdown = document.createElement('div');
+            dropdown.className = 'select-dropdown';
+            for (const opt of selectEl.options) {
+                const item = document.createElement('div');
+                item.className = 'select-item' + (opt.selected ? ' selected' : '');
+                item.dataset.value = opt.value;
+                item.textContent = opt.text;
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectEl.value = opt.value;
+                    container.querySelectorAll('.select-item').forEach(el => el.classList.remove('selected'));
+                    item.classList.add('selected');
+                    textSpan.textContent = opt.text;
+                    closeAllDropdowns();
+                    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                dropdown.appendChild(item);
+            }
+            container.appendChild(trigger); container.appendChild(dropdown);
+            trigger.addEventListener('click', (e) => {
+                if (container.classList.contains('custom-select-disabled')) return;
+                e.stopPropagation();
+                const isOpen = container.classList.contains('open');
+                closeAllDropdowns();
+                if (!isOpen) container.classList.add('open');
+            });
+            selectEl.style.display = 'none';
+            // 如果 select 在 label 内，将自定义下拉移到 label 外面，避免浏览器 label 行为拦截点击
+            const parent = selectEl.parentNode;
+            if (parent.tagName === 'LABEL') {
+                parent.after(container);
+            } else {
+                parent.insertBefore(container, selectEl.nextSibling);
+            }
+            // 同步禁用状态（保存 observer 引用防止被 GC）
+            const syncDisabled = () => container.classList.toggle('custom-select-disabled', selectEl.disabled);
+            syncDisabled();
+            const obs = new MutationObserver(() => syncDisabled());
+            obs.observe(selectEl, { attributes: true, attributeFilter: ['disabled'] });
+            container._disabledObserver = obs;
+            // 保存容器引用到 select 元素上，方便 updateUI 直接查找
+            selectEl._customContainer = container;
+            return container;
+        }
+
+        async function requestPort() {
+            try {
+                const p = await navigator.serial.requestPort();
+                await refreshPorts();
+                // 自动选中新添加的端口
+                const idx = portList.indexOf(p);
+                if (idx >= 0) {
+                    selectPort(idx);
+                }
+            } catch (e) {
+                if (e.name !== 'NotFoundError') {
+                    console.error('请求串口失败:', e);
+                    modalAlert(t('portReqFailed') + e.message);
+                }
+            }
+        }
+
+        function getSelectedPort() {
+            return selectedPortIdx >= 0 && selectedPortIdx < portList.length ? portList[selectedPortIdx] : null;
+        }
+
+        async function connect() {
+            let targetPort = null;
+
+            if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
+                targetPort = portList[selectedPortIdx];
+            }
+
+            if (!targetPort) {
+                modalAlert(t('noPortSelected'));
+                return;
+            }
+
+            const baudRate = parseInt(els.baudRate.value);
+            const dataBits = parseInt(els.dataBits.value);
+            const stopBits = parseFloat(els.stopBits.value);
+            const parity = els.parity.value;
+
+            const flowControl = [];
+            if (els.flowRts.checked) flowControl.push('rts-cts');
+            if (els.flowDtr.checked) flowControl.push('dtr-dsr');
+
+            try {
+                await targetPort.open({
+                    baudRate,
+                    dataBits,
+                    stopBits,
+                    parity,
+                    flowControl: flowControl.length > 0 ? flowControl : undefined,
+                });
+
+                port = targetPort;
+                connected = true;
+                updateUI();
+
+                // 启动读取
+                keepReading = true;
+                readLoop();
+
+            } catch (e) {
+                modalAlert(t('portOpenFailed') + e.message);
+                console.error(e);
+            }
+        }
+
+        async function disconnect() {
+            keepReading = false;
+
+            if (autoSendTimer) {
+                clearInterval(autoSendTimer);
+                autoSendTimer = null;
+            }
+
+            // 先关闭可写流
+            if (port && port.writable) {
+                try {
+                    const w = port.writable.getWriter();
+                    await w.close();
+                } catch (_) { }
+            }
+
+            // 再取消读取
+            if (reader) {
+                try {
+                    await reader.cancel();
+                    reader.releaseLock();
+                } catch (_) { }
+                reader = null;
+            }
+
+            // 最后关闭串口
+            if (port) {
+                try {
+                    await port.close();
+                } catch (_) { }
+                port = null;
+            }
+
+            connected = false;
+            updateUI();
+        }
+
+        async function readLoop() {
+            if (!port) return;
+
+            while (port.readable && keepReading) {
+                try {
+                    reader = port.readable.getReader();
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        if (value) {
+                            appendRx(value.buffer || value);
+                        }
+                    }
+                } catch (e) {
+                    if (keepReading) {
+                        console.error('读取错误:', e);
+                    }
+                } finally {
+                    try { reader.releaseLock(); } catch (_) { }
+                }
+            }
+        }
+
+        async function sendData(data) {
+            if (!connected || !port || !port.writable) {
+                modalAlert(t('portNotConnected'));
+                return;
+            }
+
+            try {
+                const w = port.writable.getWriter();
+                await w.write(data);
+                w.releaseLock();
+
+                txCounter += data.byteLength;
+                els.txCount.textContent = txCounter;
+
+                // 在接收区回显发送的数据
+                const txMode = els.rxDisplayMode.value;
+                const showTs = els.rxTimestamp.checked;
+                const display = formatData(data, txMode);
+                const escaped = display.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const cssClass = txMode === 'hex' || txMode === 'hexascii' ? 'rx-hex' : 'rx-text';
+
+                let line = '';
+                if (showTs) {
+                    line += `<span class="timestamp">[${getTimestamp()}]</span> `;
+                }
+                line += `<span class="rx-arrow">TX:</span> <span class="${cssClass}">${escaped}</span>`;
+
+                els.rxArea.insertAdjacentHTML('beforeend', `<div class="rx-line">${line}</div>`);
+                trimRx();
+                if (els.rxAutoScroll.checked) {
+                    els.rxArea.scrollTop = els.rxArea.scrollHeight;
+                }
+
+            } catch (e) {
+                console.error('发送错误:', e);
+                modalAlert(t('sendFailed') + e.message);
+            }
+        }
+
+        // ============================================================
+        //  UI 更新
+        // ============================================================
+        function updateUI() {
+            // 同步自定义下拉禁用状态（通过 select 上保存的引用直接查找）
+            const syncSelectDisabled = (id) => {
+                const sel = document.getElementById(id);
+                const container = sel?._customContainer;
+                if (container) {
+                    container.classList.toggle('custom-select-disabled', sel.disabled);
+                }
+            };
+            if (connected) {
+                els.btnConnect.textContent = t('closePort');
+                els.btnConnect.className = 'btn btn-primary connected';
+                els.statusBadge.textContent = t('connected');
+                els.statusBadge.className = 'status-badge connected';
+                els.btnSend.disabled = false;
+                els.portTrigger.style.pointerEvents = 'none';
+                els.portTrigger.style.opacity = '0.5';
+                els.baudRate.disabled = true;
+                els.dataBits.disabled = true;
+                els.stopBits.disabled = true;
+                els.parity.disabled = true;
+                els.flowRts.disabled = true;
+                els.flowDtr.disabled = true;
+            } else {
+                els.btnConnect.textContent = t('openPort');
+                els.btnConnect.className = 'btn btn-primary';
+                els.statusBadge.textContent = t('disconnected');
+                els.statusBadge.className = 'status-badge disconnected';
+                els.btnSend.disabled = true;
+                els.portTrigger.style.pointerEvents = '';
+                els.portTrigger.style.opacity = '';
+                els.baudRate.disabled = false;
+                els.dataBits.disabled = false;
+                els.stopBits.disabled = false;
+                els.parity.disabled = false;
+                els.flowRts.disabled = false;
+                els.flowDtr.disabled = false;
+
+                if (autoSendTimer) {
+                    clearInterval(autoSendTimer);
+                    autoSendTimer = null;
+                    els.txAutoSend.checked = false;
+                }
+            }
+            // 强制同步自定义下拉禁用样式
+            syncSelectDisabled('baudRate');
+            syncSelectDisabled('dataBits');
+            syncSelectDisabled('stopBits');
+            syncSelectDisabled('parity');
+        }
+
+        // ============================================================
+        //  事件绑定
+        // ============================================================
+
+        // 请求新串口
+        els.btnRequest.addEventListener('click', async () => {
+            await requestPort();
+        });
+
+        // 自动发送复选框
+        els.txAutoSend.addEventListener('change', () => {
+            if (els.txAutoSend.checked) {
+                els.txAutoInterval.disabled = false;
+                if (connected) {
+                    const interval = parseInt(els.txAutoInterval.value);
+                    autoSendTimer = setInterval(() => {
+                        doSend();
+                    }, interval);
+                }
+            } else {
+                els.txAutoInterval.disabled = true;
+                if (autoSendTimer) {
+                    clearInterval(autoSendTimer);
+                    autoSendTimer = null;
+                }
+            }
+        });
+
+        els.txAutoInterval.addEventListener('change', () => {
+            if (autoSendTimer) {
+                clearInterval(autoSendTimer);
+                const interval = parseInt(els.txAutoInterval.value);
+                autoSendTimer = setInterval(() => {
+                    doSend();
+                }, interval);
+            }
+        });
+
+        // 连接/断开
+        els.btnConnect.addEventListener('click', () => {
+            if (connected) {
+                disconnect();
+            } else {
+                connect();
+            }
+        });
+
+        // 页面关闭前自动断开
+        window.addEventListener('beforeunload', () => {
+            if (connected) disconnect();
+        });
+
+        // 发送
+        els.btnSend.addEventListener('click', doSend);
+
+        // Ctrl+Enter 发送
+        els.txInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                doSend();
+            }
+        });
+
+        function doSend() {
+            const text = els.txInput.value;
+            if (!text) return;
+
+            let data;
+            if (els.txHexMode.checked) {
+                const bytes = hexStringToBytes(text);
+                if (!bytes) {
+                    modalAlert(t('hexInvalidHint'));
+                    return;
+                }
+                data = bytes;
+            } else {
+                let str = text;
+                if (els.txAppendNewline.checked) {
+                    str += '\n';
+                }
+                const encoder = new TextEncoder();
+                data = encoder.encode(str);
+            }
+
+            sendData(data);
+        }
+
+        // ============================================================
+        //  快捷发送
+        // ============================================================
+        const QS_KEY = 'serial_quick_sends';
+
+        function loadQuickSends() {
+            try { return JSON.parse(localStorage.getItem(QS_KEY) || '[]'); } catch { return []; }
+        }
+
+        function saveQuickSends(list) {
+            localStorage.setItem(QS_KEY, JSON.stringify(list));
+        }
+
+        function renderQuickSends() {
+            const grid = els.quickSendGrid;
+            const list = loadQuickSends();
+            grid.innerHTML = '';
+            for (let i = 0; i < list.length; i++) {
+                const item = document.createElement('div');
+                item.className = 'qs-item';
+                item.innerHTML = '<span class="qs-drag" draggable="true">\u283F</span>'
+                    + '<input type="text" value="' + list[i].replace(/"/g, '&quot;') + '" spellcheck="false">'
+                    + '<button class="qs-send">' + t('send') + '</button>'
+                    + '<button class="qs-del">\uD83D\uDDD1</button>';
+                const inp = item.querySelector('input');
+                // Enter 发送
+                inp.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') sendQuick(i, inp.value);
+                });
+                item.querySelector('.qs-send').addEventListener('click', () => sendQuick(i, inp.value));
+                item.querySelector('.qs-del').addEventListener('click', () => {
+                    const list2 = loadQuickSends();
+                    list2.splice(i, 1);
+                    saveQuickSends(list2);
+                    renderQuickSends();
+                });
+                // 失去焦点时保存
+                inp.addEventListener('change', () => {
+                    const list2 = loadQuickSends();
+                    list2[i] = inp.value;
+                    saveQuickSends(list2);
+                });
+                // 拖拽排序（仅手柄可拖）
+                const qsHandle = item.querySelector('.qs-drag');
+                qsHandle.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', i);
+                    item.style.opacity = '0.4';
+                });
+                qsHandle.addEventListener('dragend', () => {
+                    item.style.opacity = '';
+                    grid.querySelectorAll('.qs-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+                });
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    item.classList.add('drag-over');
+                });
+                item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    item.classList.remove('drag-over');
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIdx = i;
+                    if (fromIdx !== toIdx) {
+                        const list2 = loadQuickSends();
+                        const [moved] = list2.splice(fromIdx, 1);
+                        list2.splice(toIdx, 0, moved);
+                        saveQuickSends(list2);
+                        renderQuickSends();
+                    }
+                });
+                grid.appendChild(item);
+            }
+        }
+
+        function sendQuick(idx, text) {
+            if (!text) return;
+            let data;
+            if (els.txHexMode.checked) {
+                const bytes = hexStringToBytes(text);
+                if (!bytes) { modalAlert(t('hexInvalid')); return; }
+                data = bytes;
+            } else {
+                let str = text;
+                if (els.txAppendNewline.checked) str += '\n';
+                data = new TextEncoder().encode(str);
+            }
+            sendData(data);
+        }
+
+        // 添加快捷发送
+        els.btnAddQuick.addEventListener('click', () => {
+            const list = loadQuickSends();
+            // 检查所有编辑框是否有空值
+            const inputs = els.quickSendGrid.querySelectorAll('.qs-item input');
+            for (let i = 0; i < inputs.length; i++) {
+                if (inputs[i].value.trim() === '') {
+                    inputs[i].classList.remove('flash-empty');
+                    void inputs[i].offsetWidth; // 重置动画
+                    inputs[i].classList.add('flash-empty');
+                    inputs[i].addEventListener('animationend', function() { this.classList.remove('flash-empty'); }, { once: true });
+                    inputs[i].focus();
+                    return;
+                }
+            }
+            list.push('');
+            saveQuickSends(list);
+            renderQuickSends();
+            // 聚焦到新添加的输入框
+            const newInputs = els.quickSendGrid.querySelectorAll('.qs-item input');
+            if (newInputs.length > 0) newInputs[newInputs.length - 1].focus();
+        });
+
+        // ============================================================
+        //  全局设置持久化（自动保存/恢复）
+        // ============================================================
+        const PERSIST_KEY = 'serial_app_settings';
+
+        // 需要保存的控件： [el名称, 类型]  类型 'v'=value, 'c'=checked
+        const PERSISTED_CONTROLS = [
+            ['baudRate', 'v'], ['dataBits', 'v'], ['stopBits', 'v'], ['parity', 'v'],
+            ['flowRts', 'c'], ['flowDtr', 'c'],
+            ['rxDisplayMode', 'v'], ['rxTimestamp', 'c'], ['rxAutoScroll', 'c'], ['rxMaxLines', 'v'],
+            ['txHexMode', 'c'], ['txAppendNewline', 'c'], ['txAutoSend', 'c'], ['txAutoInterval', 'v'],
+        ];
+
+        function saveSettings() {
+            const obj = {};
+            for (const [name, type] of PERSISTED_CONTROLS) {
+                const el = els[name];
+                if (el) obj[name] = type === 'c' ? el.checked : el.value;
+            }
+            // 保存标签
+            obj.dataLabels = dataLabels.map(d => {
+                const base = { prefix: d.prefix, mode: d.mode || 'label' };
+                if (d.mode === 'led') { base.ledMode = d.ledMode; base.threshold = d.threshold; }
+                return base;
+            });
+            obj.chartPrefixes = chartItems.map(c => ({ prefix: c.prefix, maxPoints: c.maxPoints || 50 }));
+            try { localStorage.setItem(PERSIST_KEY, JSON.stringify(obj)); } catch { }
+        }
+
+        function loadSettings() {
+            try {
+                const raw = localStorage.getItem(PERSIST_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                for (const [name, type] of PERSISTED_CONTROLS) {
+                    if (obj[name] === undefined) continue;
+                    const el = els[name];
+                    if (!el) continue;
+                    if (type === 'c') el.checked = obj[name];
+                    else el.value = obj[name];
+                }
+                // 恢复标签
+                if (obj.dataLabels && Array.isArray(obj.dataLabels)) {
+                    for (const item of obj.dataLabels) {
+                        const prefix = typeof item === 'string' ? item : item.prefix;
+                        const mode = item.mode || 'label';
+                        addLabelFromStorage({ prefix, mode });
+                    }
+                    if (dataLabels.length > 0) startLabelTimer();
+                }
+                // 恢复曲线点图
+                if (obj.chartPrefixes && Array.isArray(obj.chartPrefixes)) {
+                    for (const item of obj.chartPrefixes) {
+                        const prefix = typeof item === 'string' ? item : item.prefix;
+                        const maxPoints = typeof item === 'string' ? 50 : (item.maxPoints || 50);
+                        addChartFromStorage(prefix, maxPoints);
+                    }
+                    if (chartItems.length > 0) { renderChartPanel(); }
+                }
+            } catch { }
+        }
+
+        function addLabelFromStorage(item) {
+            const prefix = typeof item === 'string' ? item : item.prefix;
+            const mode = item.mode || 'label';
+            const text = els.rxArea.textContent;
+            const lines = text.split('\n');
+            let val = 0, vmin = 0, vmax = 0;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                const v = extractVal(lines[i], prefix);
+                if (v !== null) {
+                    val = v;
+                    vmin = Math.min(vmin, val);
+                    vmax = Math.max(vmax, val);
+                    break;
+                }
+            }
+            const idx = dataLabels.length;
+            const entry = { prefix, value: val, min: vmin, max: vmax, mode };
+            if (mode === 'led') { entry.ledMode = item.ledMode || 'bool'; entry.threshold = item.threshold || 0; }
+            dataLabels.push(entry);
+            const el = document.createElement('div');
+            buildLabelElement(el, dataLabels[idx], idx);
+            // 恢复的标签也加上拖拽
+            const handle = el.querySelector('.dp-drag');
+            const panel = els.rxDataPanel;
+            handle.addEventListener('dragstart', (e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', idx);
+                el.style.opacity = '0.4';
+            });
+            handle.addEventListener('dragend', () => {
+                el.style.opacity = '';
+                panel.querySelectorAll('.dp-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+            });
+            el.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('drag-over'); });
+            el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+            el.addEventListener('drop', (e) => {
+                e.preventDefault(); el.classList.remove('drag-over');
+                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                const toIdx = idx;
+                if (fromIdx !== toIdx) {
+                    const [moved] = dataLabels.splice(fromIdx, 1);
+                    dataLabels.splice(toIdx, 0, moved);
+                    saveSettings();
+                    renderDataPanel();
+                }
+            });
+            els.rxDataPanel.appendChild(el);
+            els.rxDataPanel.classList.add('visible');
+        }
+
+        // 所有控件 change 时自动保存
+        for (const [name] of PERSISTED_CONTROLS) {
+            const el = els[name];
+            if (el) el.addEventListener('change', saveSettings);
+        }
+
+        // 清空接收区
+        els.btnClearRx.addEventListener('click', () => {
+            els.rxArea.innerHTML = '';
+            rxCounter = 0;
+            rxLineBuffer = '';
+            els.rxCount.textContent = '0';
+            // 清空标签面板
+            dataLabels = [];
+            stopLabelTimer();
+            els.rxDataPanel.innerHTML = '';
+            els.rxDataPanel.classList.remove('visible');
+            // 清空曲线点图
+            chartItems = [];
+            els.rxChartPanel.innerHTML = '';
+            els.rxChartPanel.classList.remove('visible');
+        });
+
+        // + 标签
+        els.btnAddLabel.addEventListener('click', () => {
+            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            addLabelEditor('label');
+        });
+
+        // + 进度条
+        els.btnAddBar.addEventListener('click', () => {
+            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            addLabelEditor('progress');
+        });
+
+        // + LED
+        els.btnAddLed.addEventListener('click', () => {
+            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            addLabelEditor('led');
+        });
+
+        // 主题切换
+        els.btnTheme.addEventListener('click', showThemeModal);
+        els.btnLang.addEventListener('click', showLangModal);
+
+        // + 曲线点图
+        els.btnAddChart.addEventListener('click', () => {
+            if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+            if (els.rxChartPanel.querySelector('.rx-chart-item input[type="text"]')) return;
+            addChartEditor();
+        });
+
+        // 修改最大行数时立即裁剪
+        els.rxMaxLines.addEventListener('change', trimRx);
+
+        // 清空发送区
+        els.btnClearTx.addEventListener('click', () => {
+            els.txInput.value = '';
+        });
+
+        // 保存接收数据
+        els.btnSaveRx.addEventListener('click', () => {
+            const text = els.rxArea.textContent;
+            if (!text) {
+                modalAlert(t('noDataToSave'));
+                return;
+            }
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `串口数据_${getTimestamp().replace(/:/g, '-')}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // 初始加载
+        document.addEventListener('DOMContentLoaded', async () => {
+            loadSettings();
+            await refreshPorts();
+            renderQuickSends();
+            // 转换所有原生 select 为统一风格的自定义下拉
+            convertSelectToCustom(document.getElementById('baudRate'));
+            convertSelectToCustom(document.getElementById('dataBits'));
+            convertSelectToCustom(document.getElementById('stopBits'));
+            convertSelectToCustom(document.getElementById('parity'));
+            convertSelectToCustom(document.getElementById('rxDisplayMode'), true);
+            convertSelectToCustom(document.getElementById('rxMaxLines'), true);
+            convertSelectToCustom(document.getElementById('txAutoInterval'), true);
+        });
+
+        // ============================================================
+        //  自定义模态弹窗
+        // ============================================================
+        const modal = {
+            overlay: document.getElementById('modalOverlay'),
+            box: document.getElementById('modalBox'),
+            title: document.getElementById('modalTitle'),
+            body: document.getElementById('modalBody'),
+            footer: document.getElementById('modalFooter'),
+        };
+
+        function showModal(opts) {
+            return new Promise((resolve) => {
+                modal.title.textContent = opts.title || '';
+                modal.body.innerHTML = opts.html || '';
+                modal.footer.innerHTML = '';
+                if (opts.width) modal.box.style.width = opts.width;
+
+                if (opts.cancelText !== false) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.className = 'btn btn-secondary btn-sm';
+                    cancelBtn.textContent = opts.cancelText || t('cancel');
+                    cancelBtn.style.minWidth = '70px';
+                    cancelBtn.addEventListener('click', () => { closeModal(); resolve(null); });
+                    modal.footer.appendChild(cancelBtn);
+                }
+
+                if (opts.confirmText !== false) {
+                    const confirmBtn = document.createElement('button');
+                    confirmBtn.className = 'btn btn-primary btn-sm';
+                    confirmBtn.textContent = opts.confirmText || t('confirm');
+                    confirmBtn.style.minWidth = '70px';
+                    confirmBtn.addEventListener('click', () => {
+                        const val = opts.getValue ? opts.getValue() : true;
+                        closeModal();
+                        resolve(val);
+                    });
+                    modal.footer.appendChild(confirmBtn);
+                }
+
+                modal.overlay.classList.add('open');
+                const firstInput = modal.body.querySelector('input,select');
+                if (firstInput) setTimeout(() => firstInput.focus(), 50);
+
+                const keyHandler = (e) => {
+                    if (e.key === 'Enter') {
+                        const val = opts.getValue ? opts.getValue() : true;
+                        closeModal();
+                        resolve(val);
+                    }
+                };
+                document.addEventListener('keydown', keyHandler);
+                modal.overlay.addEventListener('click', (e) => {
+                    if (e.target === modal.overlay) { closeModal(); resolve(null); }
+                });
+            });
+        }
+
+        function closeModal() {
+            modal.overlay.classList.remove('open');
+            modal.box.style.width = '';
+        }
+
+        // 替换 alert 为模态
+        function modalAlert(msg) {
+            showModal({ title: t('tip'), html: msg, confirmText: t('ok'), cancelText: false });
+        }
+
+        // ============================================================
+        //  主题系统
+        // ============================================================
+        const THEMES = {
+            'dark':    { bg:'#0d1117', text:'#e6edf3', accent:'#58a6ff', comment:'#8b949e', raised:'#161b22', border:'#21262d', danger:'#f85149', success:'#3fb950', label:'themeDark' },
+            'ocean':   { bg:'#0a1929', text:'#e3f2fd', accent:'#64b5f6', comment:'#90a4ae', raised:'#0d2137', border:'#1a3a5c', danger:'#ef5350', success:'#66bb6a', label:'themeOcean' },
+            'forest':  { bg:'#0f1a10', text:'#e8f5e9', accent:'#81c784', comment:'#a5b5a5', raised:'#1a2b1c', border:'#2d4a30', danger:'#e57373', success:'#4caf50', label:'themeForest' },
+            'sunset':  { bg:'#1a1015', text:'#fce4ec', accent:'#f48fb1', comment:'#b0a0a8', raised:'#2a1a20', border:'#4a2a35', danger:'#ef5350', success:'#81c784', label:'themeSunset' },
+            'light':   { bg:'#ffffff', text:'#1f2328', accent:'#0969da', comment:'#656d76', raised:'#f6f8fa', border:'#d0d7de', danger:'#cf222e', success:'#1a7f37', label:'themeLight' },
+            'lavender':{ bg:'#1a1a2e', text:'#e8e0f0', accent:'#c084fc', comment:'#a896c0', raised:'#252540', border:'#3a3a5c', danger:'#f87171', success:'#86efac', label:'themeLavender' },
+            'amber':   { bg:'#1a1410', text:'#fef3c7', accent:'#fbbf24', comment:'#b89b6a', raised:'#2a2018', border:'#4a3828', danger:'#f87171', success:'#86efac', label:'themeAmber' },
+            'nord':    { bg:'#2e3440', text:'#eceff4', accent:'#88c0d0', comment:'#81a1c1', raised:'#3b4252', border:'#4c566a', danger:'#bf616a', success:'#a3be8c', label:'themeNord' },
+            'mono':    { bg:'#121212', text:'#eeeeee', accent:'#bbbbbb', comment:'#888888', raised:'#1e1e1e', border:'#333333', danger:'#ff5252', success:'#69f0ae', label:'themeMono' },
+            'coffee':  { bg:'#1c1613', text:'#e8d5c4', accent:'#c7956d', comment:'#a08a78', raised:'#2a221d', border:'#3d322b', danger:'#e57373', success:'#81c784', label:'themeCoffee' },
+            'midnight':{ bg:'#000022', text:'#c8d6e5', accent:'#00b8ff', comment:'#7f8fa6', raised:'#0a0a3a', border:'#1a1a5a', danger:'#ff6b6b', success:'#2ed573', label:'themeMidnight' },
+            'cherry':  { bg:'#1a0a0a', text:'#ffd6d6', accent:'#ff6b6b', comment:'#cc8888', raised:'#2d1414', border:'#4d2424', danger:'#ff4757', success:'#7bed9f', label:'themeCherry' },
+            'mint':    { bg:'#0a1a14', text:'#e0f5ec', accent:'#2ed573', comment:'#80b8a0', raised:'#14281e', border:'#244030', danger:'#ff6b6b', success:'#7bed9f', label:'themeMint' },
+            'sakura':  { bg:'#1e141a', text:'#fce4ec', accent:'#f06292', comment:'#ba9aa8', raised:'#2a1a24', border:'#4a2a3a', danger:'#e57373', success:'#81c784', label:'themeSakura' },
+            'dracula': { bg:'#282a36', text:'#f8f8f2', accent:'#bd93f9', comment:'#6272a4', raised:'#44475a', border:'#555770', danger:'#ff5555', success:'#50fa7b', label:'themeDracula' },
+        };
+        let currentTheme = localStorage.getItem('serial_theme') || 'mono';
+
+        function applyTheme(name) {
+            const t = THEMES[name];
+            if (!t) return;
+            currentTheme = name;
+            let css = ':root{';
+            for (const k of ['bg','text','accent','comment','raised','border','danger','success']) {
+                css += '--' + k + ':' + t[k] + ';';
+            }
+            css += '}';
+            let el = document.getElementById('_themeStyle');
+            if (!el) { el = document.createElement('style'); el.id = '_themeStyle'; document.head.appendChild(el); }
+            el.textContent = css;
+            localStorage.setItem('serial_theme', name);
+            // 重绘曲线图
+            chartItems.forEach(item => drawChart(item));
+        }
+
+        function showThemeModal() {
+            const names = Object.keys(THEMES);
+            const html = names.map(n => {
+                const th = THEMES[n];
+                return '<div class="theme-option' + (n === currentTheme ? ' theme-selected' : '') + '" data-theme="' + n + '">'
+                    + '<div class="theme-swatches">'
+                    + ['bg','accent','comment','raised','border'].map(c => '<span style="background:' + th[c] + '"></span>').join('')
+                    + '</div>'
+                    + '<span>' + t(th.label) + '</span>'
+                    + '</div>';
+            }).join('');
+            const result = showModal({
+                title: t('themeTitle'),
+                html: '<div class="theme-grid">' + html + '</div>',
+                confirmText: false,
+                cancelText: t('close'),
+            });
+            // 绑定点击事件
+            setTimeout(() => {
+                document.querySelectorAll('.theme-option').forEach(el => {
+                    el.addEventListener('click', () => {
+                        const name = el.dataset.theme;
+                        applyTheme(name);
+                        document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('theme-selected'));
+                        el.classList.add('theme-selected');
+                    });
+                });
+            }, 50);
+        }
+
+        // 启动时应用已保存的主题
+        applyTheme(currentTheme);
+
+        // ============================================================
+        //  国际化
+        // ============================================================
+        const LANG = {
+            'zh-cn': {
+                title:'串口调试助手', port:'串口', placeholder:'— 请选择 —', request:'请求',
+                baudRate:'波特率', dataBits:'数据位', stopBits:'停止位', parity:'校验位',
+                flowCtrl:'流控制', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'打开串口', closePort:'关闭串口', connected:'已连接', disconnected:'未连接',
+                rx:'接收区', tx:'发送区', display:'显示', timestamp:'时间戳', autoScroll:'自动滚动',
+                maxLines:'最大行', clearRx:'清空接收区', saveRx:'保存接收区',
+                addLabel:'+ 标签', addBar:'+ 进度条', addLed:'+ LED', addChart:'+ 曲线点图',
+                hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
+                addQuick:'+快捷发送', send:'发送', clear:'清空', del:'🗑',
+                confirm:'确认', cancel:'取消', tip:'提示', ok:'确定', close:'关闭',
+                chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP',
+                alreadyExists:'该项已存在', maxChartsReached:'最多添加{0}个曲线点图', noPortSelected:'请先在串口列表中选择一个串口，或点击"请求"按钮请求新的串口设备。',
+                portReqFailed:'请求串口失败: ', portOpenFailed:'打开串口失败: ', portNotConnected:'串口未连接',
+                sendFailed:'发送失败: ', hexInvalid:'HEX 格式无效', hexInvalidHint:'HEX 格式无效，请输入十六进制字节，例如: 01 02 AB FF',
+                noDataToSave:'没有数据可保存', noAuthorizedPort:'— 无已授权串口 —',
+                themeTitle:'选择主题配色', langTitle:'选择界面语言',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'文本', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'二进制', optOctal:'八进制', optDecimal:'十进制', optUnlimited:'不限',
+                portConfig:'串口配置', renamePort:'重命名端口', ledConfig:'LED 指示灯配置', switchTheme:'切换主题', switchLang:'切换语言', themeDark:'暗色经典', themeOcean:'深海蓝', themeForest:'森林绿', themeSunset:'日落粉', themeLight:'浅色', themeLavender:'薰衣草紫', themeAmber:'琥珀金', themeNord:'北欧极光', themeMono:'黑白灰', themeCoffee:'咖啡棕', themeMidnight:'午夜蓝', themeCherry:'樱桃红', themeMint:'薄荷绿', themeSakura:'樱花粉', themeDracula:'德古拉紫', ledModeBool:'布尔模式（0或false：绿灯）（1或true：红灯）', ledModeThreshold:'阈值模式（<阈值：绿灯）（>=阈值：红灯）', thresholdPlaceholder:'如 50', prefixTooShort:'特征名至少需要2个字符', mode:'模式',
+            },
+            'en': {
+                title:'Serial Debug', port:'Port', placeholder:'— Select —', request:'Request',
+                baudRate:'Baud Rate', dataBits:'Data Bits', stopBits:'Stop Bits', parity:'Parity',
+                flowCtrl:'Flow Control', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'Open Port', closePort:'Close Port', connected:'Connected', disconnected:'Disconnected',
+                rx:'RX', tx:'TX', display:'Display', timestamp:'Timestamp', autoScroll:'Auto Scroll',
+                maxLines:'Max Lines', clearRx:'Clear', saveRx:'Save',
+                addLabel:'+ Label', addBar:'+ Bar', addLed:'+ LED', addChart:'+ Chart',
+                hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
+                addQuick:'+ Quick Send', send:'Send', clear:'Clear', del:'🗑',
+                confirm:'Confirm', cancel:'Cancel', tip:'Tip', ok:'OK', close:'Close',
+                chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP',
+                alreadyExists:'Already exists', maxChartsReached:'Max {0} charts', noPortSelected:'Select a port first, or click "Request" to add one.',
+                portReqFailed:'Port request failed: ', portOpenFailed:'Open port failed: ', portNotConnected:'Port not connected',
+                sendFailed:'Send failed: ', hexInvalid:'Invalid HEX', hexInvalidHint:'Invalid HEX format, e.g. 01 02 AB FF',
+                noDataToSave:'No data to save', noAuthorizedPort:'— No authorized ports —',
+                themeTitle:'Choose Theme', langTitle:'Choose Language',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binary', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Unlimited',
+                portConfig:'Port Settings', renamePort:'Rename Port', ledConfig:'LED Configuration', switchTheme:'Switch Theme', switchLang:'Switch Language', themeDark:'Dark', themeOcean:'Ocean', themeForest:'Forest', themeSunset:'Sunset', themeLight:'Light', themeLavender:'Lavender', themeAmber:'Amber', themeNord:'Nord', themeMono:'Mono', themeCoffee:'Coffee', themeMidnight:'Midnight', themeCherry:'Cherry', themeMint:'Mint', themeSakura:'Sakura', themeDracula:'Dracula', ledModeBool:'Boolean mode (0/false=green, 1/true=red)', ledModeThreshold:'Threshold mode (<threshold=green, >=threshold=red)', thresholdPlaceholder:'e.g. 50', prefixTooShort:'Prefix needs at least 2 characters', mode:'Mode',
+            },
+            'ja': {
+                title:'シリアルデバッガ', port:'ポート', placeholder:'— 選択 —', request:'要求',
+                baudRate:'ボーレート', dataBits:'データビット', stopBits:'ストップビット', parity:'パリティ',
+                flowCtrl:'フロー制御', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'ポートを開く', closePort:'ポートを閉じる', connected:'接続済み', disconnected:'未接続',
+                rx:'受信', tx:'送信', display:'表示', timestamp:'タイムスタンプ', autoScroll:'自動スクロール',
+                maxLines:'最大行', clearRx:'クリア', saveRx:'保存',
+                addLabel:'+ ラベル', addBar:'+ バー', addLed:'+ LED', addChart:'+ チャート',
+                hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
+                addQuick:'+ クイック送信', send:'送信', clear:'クリア', del:'🗑',
+                confirm:'確認', cancel:'キャンセル', tip:'ヒント', ok:'OK', close:'閉じる',
+                chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）',
+                alreadyExists:'既に存在します', maxChartsReached:'最大{0}チャート', noPortSelected:'ポートを選択するか、「要求」をクリックしてください。',
+                portReqFailed:'ポート要求失敗: ', portOpenFailed:'ポートを開けませんでした: ', portNotConnected:'ポート未接続',
+                sendFailed:'送信失敗: ', hexInvalid:'HEX形式が無効', hexInvalidHint:'HEX形式が無効です。例: 01 02 AB FF',
+                noDataToSave:'保存するデータがありません', noAuthorizedPort:'— 認証済みポートなし —', prefixTooShort:'接頭辞は2文字以上必要です', mode:'モード', thresholdPlaceholder:'例 50',
+                themeTitle:'テーマ選択', langTitle:'言語選択',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'テキスト', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2進数', optOctal:'8進数', optDecimal:'10進数', optUnlimited:'無制限',
+                portConfig:'ポート設定', renamePort:'ポート名変更', ledConfig:'LED設定', switchTheme:'テーマ切替', switchLang:'言語切替', themeDark:'ダーク', themeOcean:'オーシャン', themeForest:'フォレスト', themeSunset:'サンセット', themeLight:'ライト', themeLavender:'ラベンダー', themeAmber:'アンバー', themeNord:'ノルド', themeMono:'モノクロ', themeCoffee:'コーヒー', themeMidnight:'ミッドナイト', themeCherry:'チェリー', themeMint:'ミント', themeSakura:'サクラ', themeDracula:'ドラキュラ', ledModeBool:'ブールモード（0/false=緑、1/true=赤）', ledModeThreshold:'しきい値モード（<しきい値=緑、>=しきい値=赤）',
+            },
+            'ko': {
+                title:'시리얼 디버거', port:'포트', placeholder:'— 선택 —', request:'요청',
+                baudRate:'보레이트', dataBits:'데이터비트', stopBits:'스톱비트', parity:'패리티',
+                flowCtrl:'흐름제어', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'포트 열기', closePort:'포트 닫기', connected:'연결됨', disconnected:'연결 안 됨',
+                rx:'수신', tx:'송신', display:'표시', timestamp:'타임스탬프', autoScroll:'자동 스크롤',
+                maxLines:'최대 줄', clearRx:'지우기', saveRx:'저장',
+                addLabel:'+ 레이블', addBar:'+ 막대', addLed:'+ LED', addChart:'+ 차트',
+                hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
+                addQuick:'+ 빠른 송신', send:'송신', clear:'지우기', del:'🗑',
+                confirm:'확인', cancel:'취소', tip:'알림', ok:'확인', close:'닫기',
+                chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)',
+                alreadyExists:'이미 존재함', maxChartsReached:'최대 {0}개 차트', noPortSelected:'포트를 선택하거나 "요청"을 클릭하세요.',
+                portReqFailed:'포트 요청 실패: ', portOpenFailed:'포트 열기 실패: ', portNotConnected:'포트 연결 안 됨',
+                sendFailed:'송신 실패: ', hexInvalid:'HEX 형식 오류', hexInvalidHint:'HEX 형식이 잘못되었습니다. 예: 01 02 AB FF',
+                noDataToSave:'저장할 데이터 없음', noAuthorizedPort:'— 인증된 포트 없음 —', prefixTooShort:'접두사는 2자 이상이어야 합니다', mode:'모드', thresholdPlaceholder:'예 50',
+                themeTitle:'테마 선택', langTitle:'언어 선택',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'텍스트', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2진수', optOctal:'8진수', optDecimal:'10진수', optUnlimited:'무제한',
+                portConfig:'포트 설정', ledConfig:'LED 설정', ledModeBool:'부울 모드 (0/false=녹색, 1/true=빨강)', ledModeThreshold:'임계값 모드 (<임계값=녹색, >=임계값=빨강)',
+            },
+            'fr': {
+                title:'Débogueur Série', port:'Port', placeholder:'— Sélectionner —', request:'Demander',
+                baudRate:'Débit en bauds', dataBits:'Bits de données', stopBits:'Bits d\'arrêt', parity:'Parité',
+                flowCtrl:'Contrôle de flux', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'Ouvrir le port', closePort:'Fermer le port', connected:'Connecté', disconnected:'Déconnecté',
+                rx:'RX', tx:'TX', display:'Affichage', timestamp:'Horodatage', autoScroll:'Défilement auto',
+                maxLines:'Lignes max', clearRx:'Effacer', saveRx:'Sauvegarder',
+                addLabel:'+ Étiquette', addBar:'+ Barre', addLed:'+ LED', addChart:'+ Graphique',
+                hexSend:'HEX Envoyer', appendNewline:'Ajouter saut de ligne', autoSend:'Envoi auto',
+                addQuick:'+ Envoi rapide', send:'Envoyer', clear:'Effacer', del:'🗑',
+                confirm:'Confirmer', cancel:'Annuler', tip:'Info', ok:'OK', close:'Fermer',
+                chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP',
+                alreadyExists:'Existe déjà', maxChartsReached:'Max {0} graphiques', noPortSelected:'Sélectionnez un port ou cliquez "Demander".',
+                portReqFailed:'Demande du port échouée: ', portOpenFailed:'Ouverture du port échouée: ', portNotConnected:'Port non connecté',
+                sendFailed:'Envoi échoué: ', hexInvalid:'HEX invalide', hexInvalidHint:'Format HEX invalide, ex: 01 02 AB FF',
+                noDataToSave:'Aucune donnée à sauvegarder', noAuthorizedPort:'— Aucun port autorisé —', prefixTooShort:'Le préfixe doit contenir au moins 2 caractères', mode:'Mode', thresholdPlaceholder:'ex: 50',
+                themeTitle:'Choisir le thème', langTitle:'Choisir la langue',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'Texte', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binaire', optOctal:'Octal', optDecimal:'Décimal', optUnlimited:'Illimité',
+                portConfig:'Paramètres du port', ledConfig:'Configuration LED', ledModeBool:'Mode booléen (0/false=vert, 1/true=rouge)', ledModeThreshold:'Mode seuil (<seuil=vert, >=seuil=rouge)',
+            },
+            'de': {
+                title:'Serielles Debug-Tool', port:'Port', placeholder:'— Auswählen —', request:'Anfragen',
+                baudRate:'Baudrate', dataBits:'Datenbits', stopBits:'Stoppbits', parity:'Parität',
+                flowCtrl:'Flusskontrolle', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'Port öffnen', closePort:'Port schließen', connected:'Verbunden', disconnected:'Getrennt',
+                rx:'RX', tx:'TX', display:'Anzeige', timestamp:'Zeitstempel', autoScroll:'Auto-Scroll',
+                maxLines:'Max Zeilen', clearRx:'Löschen', saveRx:'Speichern',
+                addLabel:'+ Label', addBar:'+ Balken', addLed:'+ LED', addChart:'+ Diagramm',
+                hexSend:'HEX Senden', appendNewline:'Zeilenumbruch anhängen', autoSend:'Auto-Senden',
+                addQuick:'+ Schnellsenden', send:'Senden', clear:'Löschen', del:'🗑',
+                confirm:'Bestätigen', cancel:'Abbrechen', tip:'Hinweis', ok:'OK', close:'Schließen',
+                chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP',
+                alreadyExists:'Bereits vorhanden', maxChartsReached:'Max {0} Diagramme', noPortSelected:'Wählen Sie einen Port oder klicken Sie "Anfragen".',
+                portReqFailed:'Port-Anfrage fehlgeschlagen: ', portOpenFailed:'Port öffnen fehlgeschlagen: ', portNotConnected:'Port nicht verbunden',
+                sendFailed:'Senden fehlgeschlagen: ', hexInvalid:'Ungültiges HEX', hexInvalidHint:'Ungültiges HEX-Format, z.B. 01 02 AB FF',
+                noDataToSave:'Keine Daten zum Speichern', noAuthorizedPort:'— Keine autorisierten Ports —', prefixTooShort:'Präfix benötigt mindestens 2 Zeichen', mode:'Modus', thresholdPlaceholder:'z.B. 50',
+                themeTitle:'Design wählen', langTitle:'Sprache wählen',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binär', optOctal:'Oktal', optDecimal:'Dezimal', optUnlimited:'Unbegrenzt',
+                portConfig:'Port-Einstellungen', ledConfig:'LED-Konfiguration', ledModeBool:'Boolscher Modus (0/false=grün, 1/true=rot)', ledModeThreshold:'Schwellenwertmodus (<Schwelle=grün, >=Schwelle=rot)',
+            },
+            'es': {
+                title:'Depurador Serie', port:'Puerto', placeholder:'— Seleccionar —', request:'Solicitar',
+                baudRate:'Baudios', dataBits:'Bits de datos', stopBits:'Bits de parada', parity:'Paridad',
+                flowCtrl:'Control de flujo', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'Abrir puerto', closePort:'Cerrar puerto', connected:'Conectado', disconnected:'Desconectado',
+                rx:'RX', tx:'TX', display:'Mostrar', timestamp:'Marca de tiempo', autoScroll:'Desplazamiento auto',
+                maxLines:'Máx líneas', clearRx:'Limpiar', saveRx:'Guardar',
+                addLabel:'+ Etiqueta', addBar:'+ Barra', addLed:'+ LED', addChart:'+ Gráfico',
+                hexSend:'HEX Enviar', appendNewline:'Añadir salto de línea', autoSend:'Auto Enviar',
+                addQuick:'+ Envío rápido', send:'Enviar', clear:'Limpiar', del:'🗑',
+                confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Cerrar',
+                chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP',
+                alreadyExists:'Ya existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Seleccione un puerto o haga clic en "Solicitar".',
+                portReqFailed:'Solicitud de puerto fallida: ', portOpenFailed:'Error al abrir puerto: ', portNotConnected:'Puerto no conectado',
+                sendFailed:'Envío fallido: ', hexInvalid:'HEX no válido', hexInvalidHint:'Formato HEX no válido, ej: 01 02 AB FF',
+                noDataToSave:'No hay datos para guardar', noAuthorizedPort:'— Sin puertos autorizados —', prefixTooShort:'El prefijo necesita al menos 2 caracteres', mode:'Modo', thresholdPlaceholder:'ej: 50',
+                themeTitle:'Elegir tema', langTitle:'Elegir idioma',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binario', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
+                portConfig:'Configuración del puerto', ledConfig:'Configuración LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=rojo)', ledModeThreshold:'Modo umbral (<umbral=verde, >=umbral=rojo)',
+            },
+            'pt': {
+                title:'Depurador Serial', port:'Porta', placeholder:'— Selecionar —', request:'Solicitar',
+                baudRate:'Taxa de transmissão', dataBits:'Bits de dados', stopBits:'Bits de parada', parity:'Paridade',
+                flowCtrl:'Controle de fluxo', rts:'RTS/CTS', dtr:'DTR/DSR',
+                openPort:'Abrir porta', closePort:'Fechar porta', connected:'Conectado', disconnected:'Desconectado',
+                rx:'RX', tx:'TX', display:'Exibir', timestamp:'Timestamp', autoScroll:'Rolagem automática',
+                maxLines:'Máx linhas', clearRx:'Limpar', saveRx:'Salvar',
+                addLabel:'+ Rótulo', addBar:'+ Barra', addLed:'+ LED', addChart:'+ Gráfico',
+                hexSend:'HEX Enviar', appendNewline:'Adicionar nova linha', autoSend:'Auto Enviar',
+                addQuick:'+ Envio rápido', send:'Enviar', clear:'Limpar', del:'🗑',
+                confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Fechar',
+                chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP',
+                alreadyExists:'Já existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Selecione uma porta ou clique "Solicitar".',
+                portReqFailed:'Solicitação de porta falhou: ', portOpenFailed:'Falha ao abrir porta: ', portNotConnected:'Porta não conectada',
+                sendFailed:'Envio falhou: ', hexInvalid:'HEX inválido', hexInvalidHint:'Formato HEX inválido, ex: 01 02 AB FF',
+                noDataToSave:'Nenhum dado para salvar', noAuthorizedPort:'— Nenhuma porta autorizada —', prefixTooShort:'O prefixo precisa de pelo menos 2 caracteres', mode:'Modo', thresholdPlaceholder:'ex: 50',
+                themeTitle:'Escolher tema', langTitle:'Escolher idioma',
+                rxCount:'RX', txCount:'TX', ms:'ms',
+                optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binário', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
+                portConfig:'Configurações da porta', ledConfig:'Configuração de LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=vermelho)', ledModeThreshold:'Modo limite (<limite=verde, >=limite=vermelho)',
+            },
+        };
+        let currentLang = localStorage.getItem('serial_lang') || 'en';
+
+        function t(key, ...args) {
+            const dict = LANG[currentLang] || LANG['en'];
+            let str = dict[key];
+            if (str === undefined) str = LANG['en'][key]; // fallback to English
+            if (str === undefined) return key;
+            if (args.length) str = str.replace(/\{(\d+)\}/g, (m, i) => args[i] !== undefined ? args[i] : m);
+            return str;
+        }
+
+        function applyLang(lang) {
+            currentLang = lang;
+            localStorage.setItem('serial_lang', lang);
+            document.title = t('title');
+            document.querySelector('.header h1').textContent = t('title');
+            // 更新各静态标签及连接状态文字
+            applyLangToPage();
+            updateUI();
+            // 重绘曲线图
+            chartItems.forEach(item => drawChart(item));
+        }
+
+        function applyLangToPage() {
+            // 通过 data-i18n 属性批量更新
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.dataset.i18n;
+                if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                    if (el.dataset.i18nType === 'placeholder') el.placeholder = t(key);
+                } else if (el.tagName === 'OPTION') {
+                    el.textContent = t(key);
+                } else {
+                    el.textContent = t(key);
+                }
+            });
+            // 更新 data-i18n-title 元素（按钮提示）
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                el.title = t(el.dataset.i18nTitle);
+            });
+            // 同步自定义下拉框触发器文字和选项列表
+            document.querySelectorAll('select[data-_converted]').forEach(sel => {
+                const container = sel._customContainer;
+                if (!container) return;
+                const textSpan = container.querySelector('.select-trigger > span:first-child');
+                if (textSpan) {
+                    textSpan.textContent = sel.options[sel.selectedIndex]?.text || sel.value;
+                }
+                // 同步下拉选项列表
+                const items = container.querySelectorAll('.select-item');
+                items.forEach(item => {
+                    const opt = Array.from(sel.options).find(o => o.value === item.dataset.value);
+                    if (opt) item.textContent = opt.text;
+                });
+            });
+            // 更新串口下拉占位文字（如已选择端口则保持端口名）
+            if (selectedPortIdx < 0 || selectedPortIdx >= portList.length) {
+                els.portPlaceholder.textContent = t('placeholder');
+            }
+            // 更新串口列表中无端口提示
+            const emptyMsg = els.portDropdown.querySelector('.select-empty');
+            if (emptyMsg) emptyMsg.textContent = t('noAuthorizedPort');
+        }
+
+        function showLangModal() {
+            const langs = [
+                ['zh-cn','🇨🇳 中文'], ['en','🇬🇧 English'], ['ja','🇯🇵 日本語'],
+                ['ko','🇰🇷 한국어'], ['fr','🇫🇷 Français'], ['de','🇩🇪 Deutsch'],
+                ['es','🇪🇸 Español'], ['pt','🇧🇷 Português'],
+            ];
+            const html = '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+                + langs.map(([code, label]) =>
+                    '<div class="theme-option' + (currentLang === code ? ' theme-selected' : '') + '" data-lang="' + code + '" style="flex-direction:row;gap:6px;cursor:pointer;min-width:120px;">' + label + '</div>'
+                ).join('')
+                + '</div>';
+            showModal({ title: t('langTitle'), html, confirmText: false, cancelText: t('close') });
+            setTimeout(() => {
+                document.querySelectorAll('.theme-option[data-lang]').forEach(el => {
+                    el.addEventListener('click', () => {
+                        switchLang(el.dataset.lang);
+                        closeModal();
+                    });
+                });
+            }, 50);
+        }
+
+        function switchLang(lang) {
+            applyLang(lang);
+            document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('theme-selected'));
+        }
+
+        // 启动时应用已保存的语言
+        applyLang(currentLang);
+
+        // 检查 Web Serial API 支持
+        if (!navigator.serial) {
+            document.body.innerHTML = `
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0d1117;color:#e6edf3;text-align:center;padding:40px;">
+                    <h1 style="color:#58a6ff;margin-bottom:20px;">浏览器不支持 Web Serial API</h1>
+                    <p style="font-size:16px;max-width:500px;line-height:1.8;">
+                        请使用基于 Chromium 的浏览器（如 <strong>Chrome</strong>、<strong>Edge</strong> 或 <strong>Opera</strong>）打开此页面。<br><br>
+                        当前浏览器不支持串口通信功能。
+                    </p>
+                </div>
+            `;
+        }
+
+        console.log('串口调试助手已加载');
+        console.log('提示：点击"请求"按钮，在弹出的对话框中选择串口设备。');
+    </script>
+
+</body>
+
+</html>
