@@ -2323,6 +2323,7 @@
                 clearInterval(autoSendTimer);
                 autoSendTimer = null;
             }
+            els.txAutoSend.checked = false;
 
             // 先关闭可写流
             if (port && port.writable) {
