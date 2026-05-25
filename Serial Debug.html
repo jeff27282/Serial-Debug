@@ -2680,7 +2680,7 @@
             ['baudRate', 'v'], ['dataBits', 'v'], ['stopBits', 'v'], ['parity', 'v'],
             ['flowRts', 'c'], ['flowDtr', 'c'],
             ['rxDisplayMode', 'v'], ['rxTimestamp', 'c'], ['rxAutoScroll', 'c'], ['rxMaxLines', 'v'],
-            ['txHexMode', 'c'], ['txAppendNewline', 'c'], ['txAutoSend', 'c'], ['txAutoInterval', 'v'],
+            ['txHexMode', 'c'], ['txAppendNewline', 'c'], ['txAutoInterval', 'v'],
         ];
 
         function saveSettings() {
@@ -2788,21 +2788,12 @@
             if (el) el.addEventListener('change', saveSettings);
         }
 
-        // 清空接收区
+        // 清空接收区（仅清空接收文本数据，保留标签/进度条/LED/曲线图等卡片）
         els.btnClearRx.addEventListener('click', () => {
             els.rxArea.innerHTML = '';
             rxCounter = 0;
             rxLineBuffer = '';
             els.rxCount.textContent = '0';
-            // 清空标签面板
-            dataLabels = [];
-            stopLabelTimer();
-            els.rxDataPanel.innerHTML = '';
-            els.rxDataPanel.classList.remove('visible');
-            // 清空曲线点图
-            chartItems = [];
-            els.rxChartPanel.innerHTML = '';
-            els.rxChartPanel.classList.remove('visible');
         });
 
         // + 标签
