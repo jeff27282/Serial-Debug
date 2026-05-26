@@ -2183,7 +2183,7 @@
             delete all[deviceKey];
             localStorage.setItem(DEVICE_PARAMS_KEY, JSON.stringify(all));
         }
-        // 获取当前选中设备的 key
+        // 获取当前选中设备的 key.
         function getSelectedDeviceKey() {
             if (selectedPortIdx < 0 || selectedPortIdx >= portList.length) return null;
             const info = portList[selectedPortIdx].getInfo();
