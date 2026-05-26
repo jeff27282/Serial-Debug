@@ -702,11 +702,12 @@
         }
 
         .modal-box {
-            background: #161b22;
-            border: 1px solid #21262d;
+            background: var(--raised);
+            border: 1px solid var(--border);
             border-radius: 6px;
             padding: 20px;
             width: 400px;
+            max-width: 90vw;
             box-sizing: border-box;
             box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
         }
@@ -714,13 +715,13 @@
         .modal-title {
             font-size: 14px;
             font-weight: 600;
-            color: #e6edf3;
+            color: var(--text);
             margin-bottom: 12px;
         }
 
         .modal-body {
             font-size: 13px;
-            color: #8b949e;
+            color: var(--comment);
             margin-bottom: 16px;
             line-height: 1.6;
         }
@@ -730,10 +731,10 @@
             width: 100%;
             padding: 6px 10px;
             margin-top: 8px;
-            border: 1px solid #21262d;
+            border: 1px solid var(--border);
             border-radius: 6px;
-            background: #0d1117;
-            color: #e6edf3;
+            background: var(--bg);
+            color: var(--text);
             font-size: 13px;
             outline: none;
             box-sizing: border-box;
@@ -741,11 +742,11 @@
 
         .modal-body input:focus,
         .modal-body select:focus {
-            border-color: #58a6ff;
+            border-color: var(--accent);
         }
 
         .modal-body select option {
-            background: #0d1117;
+            background: var(--bg);
         }
 
         /* Serial port picker */
@@ -933,8 +934,8 @@
         }
 
         .qs-send {
-            background: #58a6ff;
-            color: #0d1117;
+            background: var(--accent);
+            color: var(--bg);
         }
 
         .dp-ok {
@@ -3275,6 +3276,7 @@
                 html: '<div class="theme-grid">' + html + '</div>',
                 confirmText: false,
                 cancelText: t('close'),
+                width: '560px',
             });
             // 绑定点击事件
             setTimeout(() => {
@@ -3537,12 +3539,14 @@
                 ['ko','🇰🇷 한국어'], ['fr','🇫🇷 Français'], ['de','🇩🇪 Deutsch'],
                 ['es','🇪🇸 Español'], ['pt','🇧🇷 Português'],
             ];
-            const html = '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+            const html = '<div class="theme-grid">'
                 + langs.map(([code, label]) =>
-                    '<div class="theme-option' + (currentLang === code ? ' theme-selected' : '') + '" data-lang="' + code + '" style="flex-direction:row;gap:6px;cursor:pointer;min-width:120px;">' + label + '</div>'
+                    '<div class="theme-option' + (currentLang === code ? ' theme-selected' : '') + '" data-lang="' + code + '" style="cursor:pointer;flex:1;min-width:100px;">' + label + '</div>'
                 ).join('')
                 + '</div>';
-            showModal({ title: t('langTitle'), html, confirmText: false, cancelText: t('close') });
+            showModal({ title: t('langTitle'), html, confirmText: false, cancelText: t('close'), width: '480px' });
+            const footer = document.getElementById('modalFooter');
+            if (footer) footer.style.justifyContent = 'center';
             setTimeout(() => {
                 document.querySelectorAll('.theme-option[data-lang]').forEach(el => {
                     el.addEventListener('click', () => {
