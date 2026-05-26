@@ -409,6 +409,15 @@
             background: color-mix(in srgb, var(--border) 80%, var(--text));
         }
 
+        .btn-secondary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: var(--border);
+        }
+        .btn-secondary:disabled:hover {
+            background: var(--border);
+        }
+
         /* ===== 统计 ===== */
         .counter-row {
             display: flex;
@@ -737,6 +746,44 @@
 
         .modal-body select option {
             background: #0d1117;
+        }
+
+        /* Serial port picker */
+        .port-picker-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        .port-picker-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 10px 14px;
+            border: 1px solid #21262d;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all .15s;
+            background: #0d1117;
+        }
+        .port-picker-item:hover {
+            border-color: #58a6ff;
+            background: #161b22;
+        }
+        .port-picker-item.selected {
+            border-color: #58a6ff;
+            background: #1c2333;
+            box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
+        }
+        .port-picker-item .ppi-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #e6edf3;
+        }
+        .port-picker-item .ppi-info {
+            font-size: 12px;
+            color: #8b949e;
         }
 
         .modal-footer {
@@ -1114,9 +1161,9 @@
                                 <span data-i18n="maxLines">最大行:</span>
                                 <select id="rxMaxLines"
                                     style="font-size:13px;padding:6px 4px;border:1px solid #21262d;border-radius:6px;background:#0d1117;color:#e6edf3;outline:none;">
-                                    <option value="1000">1000</option>
+                                    <option value="1000" selected>1000</option>
                                     <option value="2000">2000</option>
-                                    <option value="5000" selected>5000</option>
+                                    <option value="5000">5000</option>
                                     <option value="10000">10000</option>
                                     <option value="0" data-i18n="optUnlimited">不限</option>
                                 </select>
@@ -1225,8 +1272,7 @@
             btnAddBar: document.getElementById('btnAddBar'),
             btnAddLed: document.getElementById('btnAddLed'),
             btnAddChart: document.getElementById('btnAddChart'),
-            btnTheme: document.getElementById('btnTheme'),
-            btnLang: document.getElementById('btnLang'),
+
             rxChartPanel: document.getElementById('rxChartPanel'),
             rxDataPanel: document.getElementById('rxDataPanel'),
             rxDisplayMode: document.getElementById('rxDisplayMode'),
@@ -1239,6 +1285,8 @@
             txAutoInterval: document.getElementById('txAutoInterval'),
             btnAddQuick: document.getElementById('btnAddQuick'),
             quickSendGrid: document.getElementById('quickSendGrid'),
+            btnTheme: document.getElementById('btnTheme'),
+            btnLang: document.getElementById('btnLang'),
         };
 
         // ============================================================
@@ -2064,7 +2112,47 @@
             if (info.usbVendorId && info.usbProductId) {
                 return `${info.usbVendorId}:${info.usbProductId}`;
             }
+            // For non-USB devices, use the port name as key
+            if (info.name || info.comName) {
+                return `name:${info.name || info.comName}`;
+            }
             return null;
+        }
+
+        // Enrich info with a display name so getPortKey can create a key for non-USB devices
+        function enrichPortInfo(info, displayName) {
+            if (!info.name && !info.comName && displayName) {
+                return { ...info, name: displayName };
+            }
+            return info;
+        }
+
+        const AUTHORIZED_DEVICES_KEY = 'authorized_devices';
+        function loadAuthorizedDevices() {
+            try { return JSON.parse(localStorage.getItem(AUTHORIZED_DEVICES_KEY) || '[]'); } catch { return []; }
+        }
+        function saveAuthorizedDevices(list) {
+            localStorage.setItem(AUTHORIZED_DEVICES_KEY, JSON.stringify(list));
+        }
+        function addAuthorizedDevice(info) {
+            const key = getPortKey(info);
+            if (!key) return;
+            const list = loadAuthorizedDevices();
+            if (!list.includes(key)) {
+                list.push(key);
+                saveAuthorizedDevices(list);
+            }
+        }
+        function removeAuthorizedDevice(info) {
+            const key = getPortKey(info);
+            if (!key) return;
+            const list = loadAuthorizedDevices().filter(k => k !== key);
+            saveAuthorizedDevices(list);
+        }
+        function isAuthorizedDevice(info) {
+            const key = getPortKey(info);
+            if (!key) return false; // no identifiable info, don't show
+            return loadAuthorizedDevices().includes(key);
         }
 
         function loadPortNames() {
@@ -2075,6 +2163,65 @@
             const names = loadPortNames();
             names[key] = name;
             localStorage.setItem('serial_port_names', JSON.stringify(names));
+        }
+
+        // 每个设备的参数保存（波特率、数据位、停止位、校验位、流控）
+        const DEVICE_PARAMS_KEY = 'device_params';
+        function loadDeviceParams() {
+            try { return JSON.parse(localStorage.getItem(DEVICE_PARAMS_KEY) || '{}'); } catch { return {}; }
+        }
+        function saveDeviceParams(deviceKey, params) {
+            const all = loadDeviceParams();
+            all[deviceKey] = params;
+            localStorage.setItem(DEVICE_PARAMS_KEY, JSON.stringify(all));
+        }
+        function getDeviceParams(deviceKey) {
+            return loadDeviceParams()[deviceKey] || null;
+        }
+        function removeDeviceParams(deviceKey) {
+            const all = loadDeviceParams();
+            delete all[deviceKey];
+            localStorage.setItem(DEVICE_PARAMS_KEY, JSON.stringify(all));
+        }
+        // 获取当前选中设备的 key
+        function getSelectedDeviceKey() {
+            if (selectedPortIdx < 0 || selectedPortIdx >= portList.length) return null;
+            const info = portList[selectedPortIdx].getInfo();
+            return getPortKey(info) || `_idx_${selectedPortIdx}`;
+        }
+        // 保存当前控件的参数到当前选中的设备
+        function saveCurrentParamsToDevice() {
+            const key = getSelectedDeviceKey();
+            if (!key) return;
+            saveDeviceParams(key, {
+                baudRate: els.baudRate.value,
+                dataBits: els.dataBits.value,
+                stopBits: els.stopBits.value,
+                parity: els.parity.value,
+                flowRts: els.flowRts.checked,
+                flowDtr: els.flowDtr.checked,
+            });
+        }
+        // 将保存的参数应用到控件
+        function applyDeviceParams(key) {
+            const params = getDeviceParams(key);
+            if (!params) return;
+            if (params.baudRate) { els.baudRate.value = params.baudRate; syncCustomSelect(els.baudRate); }
+            if (params.dataBits) { els.dataBits.value = params.dataBits; syncCustomSelect(els.dataBits); }
+            if (params.stopBits) { els.stopBits.value = params.stopBits; syncCustomSelect(els.stopBits); }
+            if (params.parity) { els.parity.value = params.parity; syncCustomSelect(els.parity); }
+            if (params.flowRts !== undefined) els.flowRts.checked = params.flowRts;
+            if (params.flowDtr !== undefined) els.flowDtr.checked = params.flowDtr;
+        }
+        // 同步自定义下拉框的显示文本
+        function syncCustomSelect(selectEl) {
+            const container = selectEl._customContainer;
+            if (!container) return;
+            const textSpan = container.querySelector('.select-trigger span');
+            if (textSpan) textSpan.textContent = selectEl.options[selectEl.selectedIndex]?.text || selectEl.value;
+            container.querySelectorAll('.select-item').forEach(el => {
+                el.classList.toggle('selected', el.dataset.value === selectEl.value);
+            });
         }
 
         function getPortDisplayName(info, index) {
@@ -2089,75 +2236,109 @@
 
         async function refreshPorts() {
             try {
-                portList = await navigator.serial.getPorts();
-                const dd = els.portDropdown;
-                dd.innerHTML = '';
-                if (portList.length === 0) {
-                    dd.innerHTML = '<div class="select-empty">' + t('noAuthorizedPort') + '</div>';
-                }
-                for (let i = 0; i < portList.length; i++) {
-                    const p = portList[i];
+                let allPorts = await navigator.serial.getPorts();
+                // Only show authorized devices in the dropdown
+                portList = allPorts.filter(p => {
                     const info = p.getInfo();
-                    const { name: comName, custom } = getPortDisplayName(info, i);
-                    const label = custom ? comName : `${comName} - ${getDeviceName(info.usbVendorId, info.usbProductId)}`;
-                    const item = document.createElement('div');
-                    item.className = 'select-item';
-                    item.dataset.index = i;
-                    item.innerHTML = '<span>' + label + '</span><span style="display:flex;">'
-                        + '<button class="edit-btn" data-idx="' + i + '" title="重命名">\u270E</button>'
-                        + '<button class="del-btn" data-idx="' + i + '" title="删除">\uD83D\uDDD1</button></span>';
-                    // 点击条目选择串口
-                    item.addEventListener('click', (e) => {
-                        if (e.target.closest('button')) return;
-                        selectPort(i);
-                    });
-                    // 点击 ✕ 删除
-                    item.querySelector('.del-btn').addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        try {
-                            await portList[i].forget();
-                            if (selectedPortIdx === i) selectedPortIdx = -1;
-                            await refreshPorts();
-                        } catch (err) {
-                            console.error('删除串口失败:', err);
-                        }
-                    });
-                    // 点击 ✎ 重命名
-                    item.querySelector('.edit-btn').addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        const key = getPortKey(info);
-                        const { name: cur } = getPortDisplayName(info, i);
-                        const name = await showModal({
-                            title: t('renamePort'),
-                            html: '<input id="modalRenameInput" type="text" value="' + escapeHtml(cur) + '">',
-                            getValue: () => document.getElementById('modalRenameInput').value.trim(),
-                        });
-                        if (name) {
-                            if (key) { savePortName(key, name); }
-                            else { savePortName('_idx_' + i, name); }
-                            refreshPorts();
-                        }
-                    });
-                    dd.appendChild(item);
-                }
-                // 恢复选中状态
-                if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
-                    highlightSelected(selectedPortIdx);
-                } else {
-                    selectedPortIdx = -1;
-                    els.portPlaceholder.textContent = t('placeholder');
-                }
+                    // Check with raw info first, then enrich with fallback name for non-USB devices
+                    if (isAuthorizedDevice(info)) return true;
+                    const idx = allPorts.indexOf(p);
+                    const fallbackName = info.name || info.comName || `COM${idx + 1}`;
+                    return isAuthorizedDevice(enrichPortInfo(info, fallbackName));
+                });
+                renderDropdown();
             } catch (e) {
                 console.warn('获取串口列表失败:', e);
+            }
+        }
+
+        function renderDropdown() {
+            const dd = els.portDropdown;
+            dd.innerHTML = '';
+            if (portList.length === 0) {
+                dd.innerHTML = '<div class="select-empty">' + t('noAuthorizedPort') + '</div>';
+            }
+            for (let i = 0; i < portList.length; i++) {
+                const p = portList[i];
+                const info = p.getInfo();
+                const { name: comName, custom } = getPortDisplayName(info, i);
+                const label = custom ? comName : `${comName} - ${getDeviceName(info.usbVendorId, info.usbProductId)}`;
+                const item = document.createElement('div');
+                item.className = 'select-item';
+                item.dataset.index = i;
+                item.innerHTML = '<span>' + label + '</span><span style="display:flex;">'
+                    + '<button class="edit-btn" data-idx="' + i + '" title="重命名">\u270E</button>'
+                    + '<button class="del-btn" data-idx="' + i + '" title="删除">\uD83D\uDDD1</button></span>';
+                // 点击条目选择串口
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('button')) return;
+                    selectPort(i);
+                });
+                // 点击 ✕ 删除
+                item.querySelector('.del-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const btn = e.currentTarget;
+                    const idx = parseInt(btn.dataset.idx);
+                    if (isNaN(idx) || idx >= portList.length) return;
+                    try {
+                        const info = portList[idx].getInfo();
+                        const removedPort = portList[idx];
+                        // Get the correct index from allPorts for consistent key generation
+                        let allPorts = await navigator.serial.getPorts();
+                        const realIdx = allPorts.indexOf(removedPort);
+                        const fallbackName = info.name || info.comName || `COM${realIdx + 1}`;
+                        const enriched = enrichPortInfo(info, fallbackName);
+                        // Remove from local list
+                        portList.splice(idx, 1);
+                        if (selectedPortIdx === idx) selectedPortIdx = -1;
+                        else if (selectedPortIdx > idx) selectedPortIdx--;
+                        renderDropdown();
+                        // Cleanup
+                        try { await removedPort.forget(); } catch { }
+                        removeAuthorizedDevice(enriched);
+                    } catch (err) {
+                        console.error('删除串口失败:', err);
+                    }
+                });
+                // 点击 ✎ 重命名
+                item.querySelector('.edit-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const key = getPortKey(info);
+                    const { name: cur } = getPortDisplayName(info, i);
+                    const name = await showModal({
+                        title: t('renamePort'),
+                        html: '<input id="modalRenameInput" type="text" value="' + escapeHtml(cur) + '">',
+                        getValue: () => document.getElementById('modalRenameInput').value.trim(),
+                    });
+                    if (name) {
+                        if (key) { savePortName(key, name); }
+                        else { savePortName('_idx_' + i, name); }
+                        renderDropdown();
+                    }
+                });
+                dd.appendChild(item);
+            }
+            // 恢复选中状态
+            if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
+                highlightSelected(selectedPortIdx);
+            } else {
+                selectedPortIdx = -1;
+                els.portPlaceholder.textContent = t('placeholder');
             }
         }
 
         let selectedPortIdx = -1;
 
         function selectPort(idx) {
+            // 先保存当前设备的参数
+            saveCurrentParamsToDevice();
             selectedPortIdx = idx;
             highlightSelected(idx);
             closeAllDropdowns();
+            // 恢复该设备保存的参数
+            const info = portList[idx].getInfo();
+            const key = getPortKey(info) || `_idx_${idx}`;
+            applyDeviceParams(key);
             // 选中后直接尝试连接（如果未连接）
             if (!connected) setTimeout(() => connect(), 50);
         }
@@ -2253,12 +2434,53 @@
 
         async function requestPort() {
             try {
-                const p = await navigator.serial.requestPort();
-                await refreshPorts();
-                // 自动选中新添加的端口
-                const idx = portList.indexOf(p);
-                if (idx >= 0) {
-                    selectPort(idx);
+                if (window.electronAPI?.isElectron) {
+                    // Electron: custom internal port picker modal
+                    const p = await new Promise((resolve, reject) => {
+                        window.electronAPI.onSerialPorts(async (ports) => {
+                            if (!ports || ports.length === 0) {
+                                modalAlert(t('noAuthorizedPort'));
+                                window.electronAPI.selectSerialPort('');
+                                reject(new DOMException('', 'NotFoundError'));
+                                return;
+                            }
+                            const selected = await showSerialPortPicker(ports);
+                            if (selected) {
+                                window.electronAPI.selectSerialPort(selected.portId);
+                                // requestPort() will resolve once main process calls callback
+                            } else {
+                                window.electronAPI.selectSerialPort('');
+                                reject(new DOMException('', 'NotFoundError'));
+                            }
+                        });
+                        // This triggers select-serial-port event in main process
+                        navigator.serial.requestPort().then(resolve).catch(reject);
+                    });
+                    const info = p.getInfo();
+                    // Find correct index from full getPorts() list for consistent key
+                    const allPorts = await navigator.serial.getPorts();
+                    const realIdx = allPorts.indexOf(p);
+                    const displayName = info.name || info.comName || `COM${realIdx + 1}`;
+                    addAuthorizedDevice(enrichPortInfo(info, displayName));
+                    window.electronAPI.saveAuthorizedPort({
+                        vendorId: info.usbVendorId,
+                        productId: info.usbProductId,
+                    });
+                    await refreshPorts();
+                    const idx = portList.indexOf(p);
+                    if (idx >= 0) selectPort(idx);
+                } else {
+                    // Browser: use native browser chooser dialog
+                    const p = await navigator.serial.requestPort();
+                    const info = p.getInfo();
+                    // Enrich with display name for non-USB devices
+                    const allPorts = await navigator.serial.getPorts();
+                    const realIdx = allPorts.indexOf(p);
+                    const displayName = info.name || info.comName || `COM${realIdx + 1}`;
+                    addAuthorizedDevice(enrichPortInfo(info, displayName));
+                    await refreshPorts();
+                    const idx = portList.indexOf(p);
+                    if (idx >= 0) selectPort(idx);
                 }
             } catch (e) {
                 if (e.name !== 'NotFoundError') {
@@ -2268,11 +2490,59 @@
             }
         }
 
+        // Show internal serial port picker (used in Electron desktop mode)
+        function showSerialPortPicker(ports) {
+            return new Promise((resolve) => {
+                const items = ports.map((p, i) => {
+                    const name = p.displayName || 'Serial Port';
+                    const com = p.portName ? `(${p.portName})` : '';
+                    const vid = p.vendorId ? `VID:${p.vendorId}` : '';
+                    const pid = p.productId ? `PID:${p.productId}` : '';
+                    const info = [vid, pid].filter(Boolean).join(' | ');
+                    return `<div class="port-picker-item" data-index="${i}">
+                        <span class="ppi-name">${name} ${com}</span>
+                        <span class="ppi-info">${info || 'Unknown device'}</span>
+                    </div>`;
+                }).join('');
+
+                modal.title.textContent = 'Select Serial Port';
+                modal.body.innerHTML = `<div class="port-picker-list">${items}</div>`;
+                modal.footer.innerHTML = '';
+                modal.box.style.width = '500px';
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn btn-secondary btn-sm';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.style.minWidth = '70px';
+                cancelBtn.addEventListener('click', () => { closeModal(); resolve(null); });
+                modal.footer.appendChild(cancelBtn);
+
+                modal.overlay.classList.add('open');
+
+                // Click on an item selects it and confirms
+                modal.body.addEventListener('click', (e) => {
+                    const item = e.target.closest('.port-picker-item');
+                    if (!item) return;
+                    const idx = parseInt(item.dataset.index);
+                    closeModal();
+                    resolve(ports[idx]);
+                });
+
+                // Click overlay to cancel
+                modal.overlay.addEventListener('click', (e) => {
+                    if (e.target === modal.overlay) { closeModal(); resolve(null); }
+                });
+            });
+        }
+
         function getSelectedPort() {
             return selectedPortIdx >= 0 && selectedPortIdx < portList.length ? portList[selectedPortIdx] : null;
         }
 
         async function connect() {
+            // 保存当前的参数到该设备
+            saveCurrentParamsToDevice();
+
             let targetPort = null;
 
             if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
@@ -2434,6 +2704,7 @@
                 els.statusBadge.textContent = t('connected');
                 els.statusBadge.className = 'status-badge connected';
                 els.btnSend.disabled = false;
+                els.btnRequest.disabled = true;
                 els.portTrigger.style.pointerEvents = 'none';
                 els.portTrigger.style.opacity = '0.5';
                 els.baudRate.disabled = true;
@@ -2447,7 +2718,8 @@
                 els.btnConnect.className = 'btn btn-primary';
                 els.statusBadge.textContent = t('disconnected');
                 els.statusBadge.className = 'status-badge disconnected';
-                els.btnSend.disabled = true;
+                els.btnSend.disabled = false;
+                els.btnRequest.disabled = false;
                 els.portTrigger.style.pointerEvents = '';
                 els.portTrigger.style.opacity = '';
                 els.baudRate.disabled = false;
@@ -2525,15 +2797,24 @@
         // 发送
         els.btnSend.addEventListener('click', doSend);
 
-        // Ctrl+Enter 发送
+        // Enter 发送（未连接时弹窗提示）
         els.txInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                doSend();
+            if (e.key === 'Enter') {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    doSend();
+                } else if (!connected) {
+                    e.preventDefault();
+                    modalAlert(t('portNotConnected'));
+                }
             }
         });
 
         function doSend() {
+            if (!connected) {
+                modalAlert(t('portNotConnected'));
+                return;
+            }
             const text = els.txInput.value;
             if (!text) return;
 
@@ -2789,6 +3070,12 @@
             if (el) el.addEventListener('change', saveSettings);
         }
 
+        // 端口参数变更时保存到当前设备
+        ['baudRate', 'dataBits', 'stopBits', 'parity', 'flowRts', 'flowDtr'].forEach(name => {
+            const el = els[name];
+            if (el) el.addEventListener('change', saveCurrentParamsToDevice);
+        });
+
         // 清空接收区（仅清空接收文本数据，保留标签/进度条/LED/曲线图等卡片）
         els.btnClearRx.addEventListener('click', () => {
             els.rxArea.innerHTML = '';
@@ -2995,8 +3282,7 @@
                     el.addEventListener('click', () => {
                         const name = el.dataset.theme;
                         applyTheme(name);
-                        document.querySelectorAll('.theme-option').forEach(o => o.classList.remove('theme-selected'));
-                        el.classList.add('theme-selected');
+                        closeModal();
                     });
                 });
             }, 50);
@@ -3197,7 +3483,11 @@
             // 更新各静态标签及连接状态文字
             applyLangToPage();
             updateUI();
-            // 重绘曲线图
+            // 更新曲线图卡片中的文字（"单页绘制点数"）
+            renderChartPanel();
+            // 更新快捷发送按钮文字（"发送"）
+            document.querySelectorAll('.qs-send').forEach(el => el.textContent = t('send'));
+            // 重绘曲线图内容
             chartItems.forEach(item => drawChart(item));
         }
 
