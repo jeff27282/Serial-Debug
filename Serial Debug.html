@@ -2274,7 +2274,7 @@
                 div.innerHTML = '<div class="chart-titlebar">'
                     + '<span class="chart-drag-handle" draggable="true">\u283F</span>'
                     + '<span class="chart-name">' + displayName + '</span>'
-                    + (item.chartStyle === 'gauge' ? '' : '<span class="chart-style-btn" style="cursor:pointer;font-size:13px;line-height:1;padding:0 4px;user-select:none;" title="' + t('switchStyle') + '">' + (item.chartStyle === 'bar' ? '\uD83D\uDCCA' : '\uD83D\uDCC8') + '</span>')
+                    + (item.chartStyle === 'gauge' || item.type === 'xy' ? '' : '<span class="chart-style-btn" style="cursor:pointer;font-size:13px;line-height:1;padding:0 4px;user-select:none;" title="' + t('switchStyle') + '">' + (item.chartStyle === 'bar' ? '\uD83D\uDCCA' : '\uD83D\uDCC8') + '</span>')
                     + '<span class="chart-titlebar-spacer"></span>'
                     + (item.type === 'xy' || item.chartStyle === 'gauge' ? '' : '<span class="chart-maxpts-label">' + t('chartPts') + '</span>'
                     + '<select class="chart-maxpts" style="display:none;">'
