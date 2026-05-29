@@ -327,6 +327,40 @@
             border-color: #21262d;
         }
 
+        /* 历史串口列表 */
+        .port-history-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 10px;
+            font-size: 13px;
+            color: var(--text);
+            cursor: pointer;
+            transition: background .15s;
+            border-bottom: 1px solid var(--border);
+        }
+        .port-history-item:last-child {
+            border-bottom: none;
+        }
+        .port-history-item:hover {
+            background: var(--border);
+        }
+        .port-history-item.selected {
+            color: var(--accent);
+            background: var(--raised);
+        }
+
+        #portHistoryList::-webkit-scrollbar {
+            width: 4px;
+        }
+        #portHistoryList::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        #portHistoryList::-webkit-scrollbar-thumb:hover {
+            background: var(--comment);
+        }
+
         .sidebar .inline-group {
             display: flex;
             gap: 8px;
@@ -954,9 +988,9 @@
             color: #fff;
         }
 
-        /* 自定义下拉按钮 */
-        .custom-select .select-item .edit-btn,
-        .custom-select .select-item .del-btn {
+        /* 编辑/删除按钮（通用：下拉列表和历史列表） */
+        .edit-btn,
+        .del-btn {
             border: none;
             border-radius: 6px;
             cursor: pointer;
@@ -967,20 +1001,27 @@
             min-width: 28px;
             text-align: center;
         }
-
-        .custom-select .select-item .edit-btn {
+        .edit-btn {
             background: #58a6ff;
             color: #0d1117;
+            margin-right: 2px;
         }
-
-        .custom-select .select-item .del-btn {
+        .del-btn {
             background: #f85149;
             color: #fff;
         }
-
-        .custom-select .select-item .edit-btn:hover,
-        .custom-select .select-item .del-btn:hover {
+        .edit-btn:hover,
+        .del-btn:hover {
             opacity: 0.8;
+        }
+        .del-btn:disabled,
+        .edit-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .del-btn:disabled:hover,
+        .edit-btn:disabled:hover {
+            opacity: 0.3;
         }
 
         /* ===== 滚动条 ===== */
@@ -1051,17 +1092,19 @@
             <h2 data-i18n="portConfig">串口配置</h2>
 
             <div class="section">
-                <label for="portSelect" data-i18n="port">串口</label>
+                <label for="portInput" data-i18n="port">串口</label>
                 <div style="display:flex; gap:6px; position:relative;">
-                    <div id="portSelect" class="custom-select" style="flex:1;">
-                        <div class="select-trigger" id="portTrigger">
-                            <span id="portPlaceholder" data-i18n="placeholder">— 请选择 —</span>
-                            <span class="arrow">▾</span>
-                        </div>
-                        <div class="select-dropdown" id="portDropdown"></div>
-                    </div>
+                    <input type="text" id="portInput" readonly
+                        style="flex:1;padding:6px 10px;border:1px solid #21262d;border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;outline:none;"
+                        placeholder="— 请选择 —" data-i18n="placeholder" data-i18n-type="placeholder">
                     <button class="btn btn-secondary btn-sm" id="btnRequest" data-i18n="request">请求</button>
                 </div>
+            </div>
+
+            <div class="section" id="portHistorySection" style="display:none;">
+                <label data-i18n="portHistory">历史串口</label>
+                <div id="portHistoryList"
+                    style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:0;"></div>
             </div>
 
             <div class="section">
@@ -1156,6 +1199,10 @@
                                     <option value="octal" data-i18n="optOctal">八进制</option>
                                     <option value="decimal" data-i18n="optDecimal">十进制</option>
                                 </select>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="rxAutoLineTimeout" checked>
+                                <span data-i18n="autoLineTimeout">自动换行</span>
                             </label>
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <input type="checkbox" id="rxTimestamp" checked> <span data-i18n="timestamp">时间戳</span>
@@ -1253,12 +1300,12 @@
         let autoSendTimer = null;
         let keepReading = false;
         let rxLineBuffer = '';   // 行缓冲：攒够一行再显示
+        let rxLineTimer = null;   // 行超时定时器
 
         const els = {
-            portSelect: document.getElementById('portSelect'),
-            portTrigger: document.getElementById('portTrigger'),
-            portPlaceholder: document.getElementById('portPlaceholder'),
-            portDropdown: document.getElementById('portDropdown'),
+            portInput: document.getElementById('portInput'),
+            portHistoryList: document.getElementById('portHistoryList'),
+            portHistorySection: document.getElementById('portHistorySection'),
             btnRequest: document.getElementById('btnRequest'),
             baudRate: document.getElementById('baudRate'),
             dataBits: document.getElementById('dataBits'),
@@ -1275,6 +1322,7 @@
             btnSend: document.getElementById('btnSend'),
             btnClearRx: document.getElementById('btnClearRx'),
             btnClearTx: document.getElementById('btnClearTx'),
+            rxAutoLineTimeout: document.getElementById('rxAutoLineTimeout'),
             btnSaveRx: document.getElementById('btnSaveRx'),
             btnAddLabel: document.getElementById('btnAddLabel'),
             btnAddBar: document.getElementById('btnAddBar'),
@@ -1408,11 +1456,44 @@
             }
         }
 
+        // 根据当前波特率计算超时时间（每字符传输时间 × 3）
+        function calcLineTimeoutMs() {
+            if (!els.rxAutoLineTimeout.checked) return 0;
+            const baudRate = parseInt(els.baudRate.value) || 9600;
+            // 8N1 = 10 bits per character
+            const timePerChar = (10 / baudRate) * 1000; // ms
+            // x3 作为包间隔判断，最低 4ms（setTimeout 最小精度）
+            return Math.max(4, Math.round(timePerChar * 3));
+        }
+
+        function flushLineBuffer() {
+            rxLineTimer = null;
+            if (rxLineBuffer.length === 0) return;
+            const text = rxLineBuffer;
+            rxLineBuffer = '';
+            const trimmed = text.replace(/\r?\n?$/, '');
+            if (trimmed.length === 0) return;
+            const escaped = trimmed.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const cssClass = 'rx-text';
+            let html = '';
+            if (els.rxTimestamp.checked) {
+                html += `<span class="timestamp">[${getTimestamp()}]</span> `;
+            }
+            html += `<span class="${cssClass}">${escaped}</span>`;
+            els.rxArea.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
+            trimRx();
+            if (els.rxAutoScroll.checked) {
+                els.rxArea.scrollTop = els.rxArea.scrollHeight;
+            }
+            onNewDataLine(trimmed);
+        }
+
         function appendRx(data) {
             const el = els.rxArea;
             const mode = els.rxDisplayMode.value;
             const showTs = els.rxTimestamp.checked;
             const cssClass = mode === 'hex' || mode === 'hexascii' ? 'rx-hex' : 'rx-text';
+            const lineTimeoutMs = calcLineTimeoutMs();
 
             // 文本模式：行缓存，攒够 \n 结尾的完整行才显示，确保一行只有一个时间戳
             if (mode === 'text') {
@@ -1433,6 +1514,15 @@
                     el.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
                     // 文本模式：每收到一行完整数据就刷新图表
                     onNewDataLine(line);
+                }
+
+                // 换行超时：如果缓冲区还有内容且超时>0，设置定时器在无数据时刷新
+                if (rxLineBuffer.length > 0 && lineTimeoutMs > 0) {
+                    if (rxLineTimer) clearTimeout(rxLineTimer);
+                    rxLineTimer = setTimeout(flushLineBuffer, lineTimeoutMs);
+                } else if (rxLineBuffer.length === 0 && rxLineTimer) {
+                    clearTimeout(rxLineTimer);
+                    rxLineTimer = null;
                 }
             } else {
                 // 非文本模式：直接显示，每块数据一个时间戳
@@ -2734,22 +2824,26 @@
         }
 
         function renderDropdown() {
-            const dd = els.portDropdown;
-            dd.innerHTML = '';
+            const historyList = els.portHistoryList;
+            historyList.innerHTML = '';
             if (portList.length === 0) {
-                dd.innerHTML = '<div class="select-empty">' + t('noAuthorizedPort') + '</div>';
+                els.portHistorySection.style.display = 'none';
+                els.portInput.value = '';
+                els.portInput.placeholder = t('noAuthorizedPort');
+                return;
             }
+            els.portHistorySection.style.display = '';
             for (let i = 0; i < portList.length; i++) {
                 const p = portList[i];
                 const info = p.getInfo();
                 const { name: comName, custom } = getPortDisplayName(info, i);
                 const label = custom ? comName : `${comName} - ${getDeviceName(info.usbVendorId, info.usbProductId)}`;
                 const item = document.createElement('div');
-                item.className = 'select-item';
+                item.className = 'port-history-item';
                 item.dataset.index = i;
                 item.innerHTML = '<span>' + label + '</span><span style="display:flex;">'
                     + '<button class="edit-btn" data-idx="' + i + '" title="重命名">\u270E</button>'
-                    + '<button class="del-btn" data-idx="' + i + '" title="删除">\uD83D\uDDD1</button></span>';
+                    + '<button class="del-btn" data-idx="' + i + '" title="删除"' + (connected ? ' disabled' : '') + '>\uD83D\uDDD1</button></span>';
                 // 点击条目选择串口
                 item.addEventListener('click', (e) => {
                     if (e.target.closest('button')) return;
@@ -2764,20 +2858,16 @@
                     try {
                         const info = portList[idx].getInfo();
                         const removedPort = portList[idx];
-                        // Get the correct index from allPorts for consistent key generation
                         let allPorts = await navigator.serial.getPorts();
                         const realIdx = allPorts.indexOf(removedPort);
                         const fallbackName = info.name || info.comName || `COM${realIdx + 1}`;
                         const enriched = enrichPortInfo(info, fallbackName);
-                        // Remove from local list
                         portList.splice(idx, 1);
                         if (selectedPortIdx === idx) selectedPortIdx = -1;
                         else if (selectedPortIdx > idx) selectedPortIdx--;
                         renderDropdown();
-                        // Cleanup
                         try { await removedPort.forget(); } catch { }
                         removeAuthorizedDevice(enriched);
-                        // Also clean up nickname and device params
                         const cleanupKey = getPortKey(enriched);
                         if (cleanupKey) {
                             removePortName(cleanupKey);
@@ -2803,14 +2893,15 @@
                         renderDropdown();
                     }
                 });
-                dd.appendChild(item);
+                historyList.appendChild(item);
             }
             // 恢复选中状态
             if (selectedPortIdx >= 0 && selectedPortIdx < portList.length) {
                 highlightSelected(selectedPortIdx);
             } else {
                 selectedPortIdx = -1;
-                els.portPlaceholder.textContent = t('placeholder');
+                els.portInput.value = '';
+                els.portInput.placeholder = t('placeholder');
             }
         }
 
@@ -2819,45 +2910,35 @@
         function selectPort(idx) {
             // 先保存当前设备的参数
             saveCurrentParamsToDevice();
+            const isSamePort = selectedPortIdx === idx;
             selectedPortIdx = idx;
             highlightSelected(idx);
-            closeAllDropdowns();
             // 恢复该设备保存的参数
             const info = portList[idx].getInfo();
             const key = getPortKey(info) || `_idx_${idx}`;
             applyDeviceParams(key);
-            // 选中后直接尝试连接（如果未连接）
-            if (!connected) setTimeout(() => connect(), 50);
+            // 如果已连接到其他串口，先断开再重新连接
+            if (connected) {
+                if (isSamePort) return; // 同一个串口，无需操作
+                disconnect().then(() => setTimeout(() => connect(), 100));
+            } else {
+                setTimeout(() => connect(), 50);
+            }
         }
 
         function highlightSelected(idx) {
-            const items = els.portDropdown.querySelectorAll('.select-item');
+            const items = els.portHistoryList.querySelectorAll('.port-history-item');
             items.forEach(el => el.classList.remove('selected'));
-            const target = els.portDropdown.querySelector(`.select-item[data-index="${idx}"]`);
+            const target = els.portHistoryList.querySelector(`.port-history-item[data-index="${idx}"]`);
             if (target) {
                 target.classList.add('selected');
-                els.portPlaceholder.textContent = target.querySelector('span').textContent;
+                els.portInput.value = target.querySelector('span').textContent;
             }
         }
 
         function closeAllDropdowns() {
             document.querySelectorAll('.custom-select.open').forEach(el => el.classList.remove('open'));
         }
-
-        // 点击触发器打开/关闭下拉
-        els.portTrigger.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = els.portSelect.classList.contains('open');
-            closeAllDropdowns();
-            if (!isOpen) els.portSelect.classList.add('open');
-        });
-
-        // 点击外部关闭所有下拉
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.custom-select')) {
-                closeAllDropdowns();
-            }
-        });
 
         // ============================================================
         //  统一自定义下拉框转换
@@ -3087,6 +3168,10 @@
         async function disconnect() {
             keepReading = false;
 
+            // 断开前刷新缓冲区中的剩余数据
+            if (rxLineTimer) { clearTimeout(rxLineTimer); rxLineTimer = null; }
+            flushLineBuffer();
+
             if (autoSendTimer) {
                 clearInterval(autoSendTimer);
                 autoSendTimer = null;
@@ -3203,8 +3288,7 @@
                 els.statusBadge.className = 'status-badge connected';
                 els.btnSend.disabled = false;
                 els.btnRequest.disabled = true;
-                els.portTrigger.style.pointerEvents = 'none';
-                els.portTrigger.style.opacity = '0.5';
+                els.portInput.style.opacity = '0.5';
                 els.baudRate.disabled = true;
                 els.dataBits.disabled = true;
                 els.stopBits.disabled = true;
@@ -3218,8 +3302,7 @@
                 els.statusBadge.className = 'status-badge disconnected';
                 els.btnSend.disabled = false;
                 els.btnRequest.disabled = false;
-                els.portTrigger.style.pointerEvents = '';
-                els.portTrigger.style.opacity = '';
+                els.portInput.style.opacity = '';
                 els.baudRate.disabled = false;
                 els.dataBits.disabled = false;
                 els.stopBits.disabled = false;
@@ -3238,6 +3321,8 @@
             syncSelectDisabled('dataBits');
             syncSelectDisabled('stopBits');
             syncSelectDisabled('parity');
+            // 刷新历史列表按钮状态（连接时禁用删除）
+            renderDropdown();
         }
 
         // ============================================================
@@ -3455,7 +3540,7 @@
         const PERSISTED_CONTROLS = [
             ['baudRate', 'v'], ['dataBits', 'v'], ['stopBits', 'v'], ['parity', 'v'],
             ['flowRts', 'c'], ['flowDtr', 'c'],
-            ['rxDisplayMode', 'v'], ['rxTimestamp', 'c'], ['rxAutoScroll', 'c'], ['rxMaxLines', 'v'],
+            ['rxDisplayMode', 'v'], ['rxTimestamp', 'c'], ['rxAutoScroll', 'c'], ['rxMaxLines', 'v'], ['rxAutoLineTimeout', 'c'],
             ['txHexMode', 'c'], ['txAppendNewline', 'c'], ['txAutoInterval', 'v'],
         ];
 
@@ -3578,11 +3663,25 @@
             if (el) el.addEventListener('change', saveCurrentParamsToDevice);
         });
 
+        // 波特率变化时重置超时定时器
+        els.baudRate.addEventListener('change', () => {
+            if (rxLineTimer) {
+                clearTimeout(rxLineTimer);
+                const ms = calcLineTimeoutMs();
+                if (ms > 0) {
+                    rxLineTimer = setTimeout(flushLineBuffer, ms);
+                } else {
+                    rxLineTimer = null;
+                }
+            }
+        });
+
         // 清空接收区（仅清空接收文本数据，保留标签/进度条/LED/曲线图等卡片）
         els.btnClearRx.addEventListener('click', () => {
             els.rxArea.innerHTML = '';
             rxCounter = 0;
             rxLineBuffer = '';
+            if (rxLineTimer) { clearTimeout(rxLineTimer); rxLineTimer = null; }
             els.rxCount.textContent = '0';
         });
 
@@ -3638,6 +3737,21 @@
         // 修改最大行数时立即裁剪
         els.rxMaxLines.addEventListener('change', trimRx);
 
+        // 显示模式切换时刷新缓冲区（避免残留在缓冲区的数据丢失）
+        els.rxDisplayMode.addEventListener('change', () => {
+            if (rxLineTimer) { clearTimeout(rxLineTimer); rxLineTimer = null; }
+            flushLineBuffer();
+        });
+
+        // 自动换行复选框变更时，如果关闭则立即刷新缓冲区
+        els.rxAutoLineTimeout.addEventListener('change', () => {
+            if (!els.rxAutoLineTimeout.checked && rxLineTimer) {
+                clearTimeout(rxLineTimer);
+                rxLineTimer = null;
+                flushLineBuffer();
+            }
+        });
+
         // 清空发送区
         els.btnClearTx.addEventListener('click', () => {
             els.txInput.value = '';
@@ -3671,6 +3785,7 @@
             convertSelectToCustom(document.getElementById('parity'));
             convertSelectToCustom(document.getElementById('rxDisplayMode'), true);
             convertSelectToCustom(document.getElementById('rxMaxLines'), true);
+
             convertSelectToCustom(document.getElementById('txAutoInterval'), true);
         });
 
@@ -3827,6 +3942,7 @@
                 maxLines:'最大行', clearRx:'清空接收区', saveRx:'保存接收区',
                 addLabel:'+ 标签', addBar:'+ 进度条', addLed:'+ LED', addChart:'+ 曲线点图',
                 hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
+                autoLineTimeout:'自动换行',
                 addQuick:'+快捷发送', send:'发送', clear:'清空', del:'🗑',
                 confirm:'确认', cancel:'取消', tip:'提示', ok:'确定', close:'关闭',
                 chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP', txPlaceholder:'输入要发送的数据…', addXYChart:'+ XY点图', xyNeedBoth:'X和Y特征都需要至少2个字符', xyHint:'输入X/Y特征名', addGauge:'+ 仪表盘', switchStyle:'切换折线/柱状/仪表盘',
@@ -3837,7 +3953,7 @@
                 themeTitle:'选择主题配色', langTitle:'选择界面语言',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'文本', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'二进制', optOctal:'八进制', optDecimal:'十进制', optUnlimited:'不限',
-                portConfig:'串口配置', renamePort:'重命名端口', ledConfig:'LED 指示灯配置', switchTheme:'切换主题', switchLang:'切换语言', themeDark:'暗色经典', themeOcean:'深海蓝', themeForest:'森林绿', themeSunset:'日落粉', themeLight:'浅色', themeLavender:'薰衣草紫', themeAmber:'琥珀金', themeNord:'北欧极光', themeMono:'黑白灰', themeCoffee:'咖啡棕', themeMidnight:'午夜蓝', themeCherry:'樱桃红', themeMint:'薄荷绿', themeSakura:'樱花粉', themeDracula:'德古拉紫', ledModeBool:'布尔模式（0或false：绿灯）（1或true：红灯）', ledModeThreshold:'阈值模式（<阈值：绿灯）（>=阈值：红灯）', thresholdPlaceholder:'如 50', prefixTooShort:'特征名至少需要2个字符', mode:'模式',
+                portConfig:'串口配置', portHistory:'历史串口', renamePort:'重命名端口', ledConfig:'LED 指示灯配置', switchTheme:'切换主题', switchLang:'切换语言', themeDark:'暗色经典', themeOcean:'深海蓝', themeForest:'森林绿', themeSunset:'日落粉', themeLight:'浅色', themeLavender:'薰衣草紫', themeAmber:'琥珀金', themeNord:'北欧极光', themeMono:'黑白灰', themeCoffee:'咖啡棕', themeMidnight:'午夜蓝', themeCherry:'樱桃红', themeMint:'薄荷绿', themeSakura:'樱花粉', themeDracula:'德古拉紫', ledModeBool:'布尔模式（0或false：绿灯）（1或true：红灯）', ledModeThreshold:'阈值模式（<阈值：绿灯）（>=阈值：红灯）', thresholdPlaceholder:'如 50', prefixTooShort:'特征名至少需要2个字符', mode:'模式',
             },
             'en': {
                 title:'Serial Debug', port:'Port', placeholder:'— Select —', request:'Request',
@@ -3848,6 +3964,7 @@
                 maxLines:'Max Lines', clearRx:'Clear', saveRx:'Save',
                 addLabel:'+ Label', addBar:'+ Bar', addLed:'+ LED', addChart:'+ Chart',
                 hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
+                autoLineTimeout:'Auto Wrap',
                 addQuick:'+ Quick Send', send:'Send', clear:'Clear', del:'🗑',
                 confirm:'Confirm', cancel:'Cancel', tip:'Tip', ok:'OK', close:'Close',
                 chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP', txPlaceholder:'Enter data to send…', addXYChart:'+ XY Plot', xyNeedBoth:'Both X and Y prefixes need at least 2 chars', xyHint:'Enter X/Y prefix', addGauge:'+ Gauge', switchStyle:'Switch Line/Bar/Gauge',
@@ -3858,7 +3975,7 @@
                 themeTitle:'Choose Theme', langTitle:'Choose Language',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binary', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Unlimited',
-                portConfig:'Port Settings', renamePort:'Rename Port', ledConfig:'LED Configuration', switchTheme:'Switch Theme', switchLang:'Switch Language', themeDark:'Dark', themeOcean:'Ocean', themeForest:'Forest', themeSunset:'Sunset', themeLight:'Light', themeLavender:'Lavender', themeAmber:'Amber', themeNord:'Nord', themeMono:'Mono', themeCoffee:'Coffee', themeMidnight:'Midnight', themeCherry:'Cherry', themeMint:'Mint', themeSakura:'Sakura', themeDracula:'Dracula', ledModeBool:'Boolean mode (0/false=green, 1/true=red)', ledModeThreshold:'Threshold mode (<threshold=green, >=threshold=red)', thresholdPlaceholder:'e.g. 50', prefixTooShort:'Prefix needs at least 2 characters', mode:'Mode',
+                portConfig:'Port Settings', portHistory:'Port History', renamePort:'Rename Port', ledConfig:'LED Configuration', switchTheme:'Switch Theme', switchLang:'Switch Language', themeDark:'Dark', themeOcean:'Ocean', themeForest:'Forest', themeSunset:'Sunset', themeLight:'Light', themeLavender:'Lavender', themeAmber:'Amber', themeNord:'Nord', themeMono:'Mono', themeCoffee:'Coffee', themeMidnight:'Midnight', themeCherry:'Cherry', themeMint:'Mint', themeSakura:'Sakura', themeDracula:'Dracula', ledModeBool:'Boolean mode (0/false=green, 1/true=red)', ledModeThreshold:'Threshold mode (<threshold=green, >=threshold=red)', thresholdPlaceholder:'e.g. 50', prefixTooShort:'Prefix needs at least 2 characters', mode:'Mode',
             },
             'ja': {
                 title:'シリアルデバッガ', port:'ポート', placeholder:'— 選択 —', request:'要求',
@@ -3869,6 +3986,7 @@
                 maxLines:'最大行', clearRx:'クリア', saveRx:'保存',
                 addLabel:'+ ラベル', addBar:'+ バー', addLed:'+ LED', addChart:'+ チャート',
                 hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
+                autoLineTimeout:'自動改行',
                 addQuick:'+ クイック送信', send:'送信', clear:'クリア', del:'🗑',
                 confirm:'確認', cancel:'キャンセル', tip:'ヒント', ok:'OK', close:'閉じる',
                 chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）', txPlaceholder:'送信するデータを入力…', addXYChart:'+ XY散布図', xyNeedBoth:'XとYの接頭辞は両方とも2文字以上必要です', xyHint:'X/Y接頭辞を入力', addGauge:'+ ゲージ', switchStyle:'切替 折れ線/棒',
@@ -3879,7 +3997,7 @@
                 themeTitle:'テーマ選択', langTitle:'言語選択',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'テキスト', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2進数', optOctal:'8進数', optDecimal:'10進数', optUnlimited:'無制限',
-                portConfig:'ポート設定', renamePort:'ポート名変更', ledConfig:'LED設定', switchTheme:'テーマ切替', switchLang:'言語切替', themeDark:'ダーク', themeOcean:'オーシャン', themeForest:'フォレスト', themeSunset:'サンセット', themeLight:'ライト', themeLavender:'ラベンダー', themeAmber:'アンバー', themeNord:'ノルド', themeMono:'モノクロ', themeCoffee:'コーヒー', themeMidnight:'ミッドナイト', themeCherry:'チェリー', themeMint:'ミント', themeSakura:'サクラ', themeDracula:'ドラキュラ', ledModeBool:'ブールモード（0/false=緑、1/true=赤）', ledModeThreshold:'しきい値モード（<しきい値=緑、>=しきい値=赤）',
+                portConfig:'ポート設定', portHistory:'シリアルポート履歴', renamePort:'ポート名変更', ledConfig:'LED設定', switchTheme:'テーマ切替', switchLang:'言語切替', themeDark:'ダーク', themeOcean:'オーシャン', themeForest:'フォレスト', themeSunset:'サンセット', themeLight:'ライト', themeLavender:'ラベンダー', themeAmber:'アンバー', themeNord:'ノルド', themeMono:'モノクロ', themeCoffee:'コーヒー', themeMidnight:'ミッドナイト', themeCherry:'チェリー', themeMint:'ミント', themeSakura:'サクラ', themeDracula:'ドラキュラ', ledModeBool:'ブールモード（0/false=緑、1/true=赤）', ledModeThreshold:'しきい値モード（<しきい値=緑、>=しきい値=赤）',
             },
             'ko': {
                 title:'시리얼 디버거', port:'포트', placeholder:'— 선택 —', request:'요청',
@@ -3890,6 +4008,7 @@
                 maxLines:'최대 줄', clearRx:'지우기', saveRx:'저장',
                 addLabel:'+ 레이블', addBar:'+ 막대', addLed:'+ LED', addChart:'+ 차트',
                 hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
+                autoLineTimeout:'자동 줄바꿈',
                 addQuick:'+ 빠른 송신', send:'송신', clear:'지우기', del:'🗑',
                 confirm:'확인', cancel:'취소', tip:'알림', ok:'확인', close:'닫기',
                 chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)', txPlaceholder:'보낼 데이터 입력…', addXYChart:'+ XY 산점도', xyNeedBoth:'X와 Y 접두사 모두 2자 이상이어야 합니다', xyHint:'X/Y 접두사 입력', addGauge:'+ 게이지', switchStyle:'전환 꺾은선/막대',
@@ -3900,7 +4019,7 @@
                 themeTitle:'테마 선택', langTitle:'언어 선택',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'텍스트', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2진수', optOctal:'8진수', optDecimal:'10진수', optUnlimited:'무제한',
-                portConfig:'포트 설정', ledConfig:'LED 설정', ledModeBool:'부울 모드 (0/false=녹색, 1/true=빨강)', ledModeThreshold:'임계값 모드 (<임계값=녹색, >=임계값=빨강)',
+                portConfig:'포트 설정', portHistory:'포트 기록', ledConfig:'LED 설정', ledModeBool:'부울 모드 (0/false=녹색, 1/true=빨강)', ledModeThreshold:'임계값 모드 (<임계값=녹색, >=임계값=빨강)',
             },
             'fr': {
                 title:'Débogueur Série', port:'Port', placeholder:'— Sélectionner —', request:'Demander',
@@ -3921,7 +4040,7 @@
                 themeTitle:'Choisir le thème', langTitle:'Choisir la langue',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texte', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binaire', optOctal:'Octal', optDecimal:'Décimal', optUnlimited:'Illimité',
-                portConfig:'Paramètres du port', ledConfig:'Configuration LED', ledModeBool:'Mode booléen (0/false=vert, 1/true=rouge)', ledModeThreshold:'Mode seuil (<seuil=vert, >=seuil=rouge)',
+                portConfig:'Paramètres du port', portHistory:'Historique des ports', ledConfig:'Configuration LED', ledModeBool:'Mode booléen (0/false=vert, 1/true=rouge)', ledModeThreshold:'Mode seuil (<seuil=vert, >=seuil=rouge)',
             },
             'de': {
                 title:'Serielles Debug-Tool', port:'Port', placeholder:'— Auswählen —', request:'Anfragen',
@@ -3942,7 +4061,7 @@
                 themeTitle:'Design wählen', langTitle:'Sprache wählen',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binär', optOctal:'Oktal', optDecimal:'Dezimal', optUnlimited:'Unbegrenzt',
-                portConfig:'Port-Einstellungen', ledConfig:'LED-Konfiguration', ledModeBool:'Boolscher Modus (0/false=grün, 1/true=rot)', ledModeThreshold:'Schwellenwertmodus (<Schwelle=grün, >=Schwelle=rot)',
+                portConfig:'Port-Einstellungen', portHistory:'Port-Verlauf', ledConfig:'LED-Konfiguration', ledModeBool:'Boolscher Modus (0/false=grün, 1/true=rot)', ledModeThreshold:'Schwellenwertmodus (<Schwelle=grün, >=Schwelle=rot)',
             },
             'es': {
                 title:'Depurador Serie', port:'Puerto', placeholder:'— Seleccionar —', request:'Solicitar',
@@ -3963,7 +4082,7 @@
                 themeTitle:'Elegir tema', langTitle:'Elegir idioma',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binario', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
-                portConfig:'Configuración del puerto', ledConfig:'Configuración LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=rojo)', ledModeThreshold:'Modo umbral (<umbral=verde, >=umbral=rojo)',
+                portConfig:'Configuración del puerto', portHistory:'Historial de puertos', ledConfig:'Configuración LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=rojo)', ledModeThreshold:'Modo umbral (<umbral=verde, >=umbral=rojo)',
             },
             'pt': {
                 title:'Depurador Serial', port:'Porta', placeholder:'— Selecionar —', request:'Solicitar',
@@ -3984,7 +4103,7 @@
                 themeTitle:'Escolher tema', langTitle:'Escolher idioma',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binário', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
-                portConfig:'Configurações da porta', ledConfig:'Configuração de LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=vermelho)', ledModeThreshold:'Modo limite (<limite=verde, >=limite=vermelho)',
+                portConfig:'Configurações da porta', portHistory:'Histórico de portas', ledConfig:'Configuração de LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=vermelho)', ledModeThreshold:'Modo limite (<limite=verde, >=limite=vermelho)',
             },
         };
         let currentLang = localStorage.getItem('serial_lang') || 'en';
@@ -4054,11 +4173,13 @@
             });
             // 更新串口下拉占位文字（如已选择端口则保持端口名）
             if (selectedPortIdx < 0 || selectedPortIdx >= portList.length) {
-                els.portPlaceholder.textContent = t('placeholder');
+                els.portInput.placeholder = t('placeholder');
             }
             // 更新串口列表中无端口提示
-            const emptyMsg = els.portDropdown.querySelector('.select-empty');
-            if (emptyMsg) emptyMsg.textContent = t('noAuthorizedPort');
+            const emptyMsg = els.portHistoryList.querySelector('.port-history-item');
+            if (!emptyMsg && portList.length === 0) {
+                els.portInput.placeholder = t('noAuthorizedPort');
+            }
         }
 
         function showLangModal() {
