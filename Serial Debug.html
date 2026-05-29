@@ -627,7 +627,7 @@
         .rx-chart-item {
             background:var(--raised); border:1px solid var(--border);
             border-radius:6px; position:relative;
-            display:flex; flex-direction:column;
+            display:flex; flex-direction:column; overflow:hidden;
         }
         .rx-chart-item .chart-titlebar {
             display:flex; align-items:center; gap:4px;
@@ -682,7 +682,7 @@
             0% { box-shadow: inset 0 0 0 1px #3fb950; background:rgba(63,185,80,0.15); }
             100% { box-shadow: none; background:transparent; }
         }
-        .qs-item input.flash-empty {
+        input.flash-empty {
             animation: flashGreen .6s ease-out;
         }
 
@@ -1180,6 +1180,8 @@
                             <button class="btn btn-secondary btn-sm" id="btnAddBar" data-i18n="addBar">+ 进度条</button>
                             <button class="btn btn-secondary btn-sm" id="btnAddLed" data-i18n="addLed">+ LED</button>
                             <button class="btn btn-secondary btn-sm" id="btnAddChart" data-i18n="addChart">+ 曲线点图</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddXYChart" data-i18n="addXYChart">+ XY点图</button>
+                            <button class="btn btn-secondary btn-sm" id="btnAddGauge" data-i18n="addGauge">+ 仪表盘</button>
                         </div>
                     </div>
                 </div>
@@ -1278,6 +1280,8 @@
             btnAddBar: document.getElementById('btnAddBar'),
             btnAddLed: document.getElementById('btnAddLed'),
             btnAddChart: document.getElementById('btnAddChart'),
+            btnAddXYChart: document.getElementById('btnAddXYChart'),
+            btnAddGauge: document.getElementById('btnAddGauge'),
 
             rxChartPanel: document.getElementById('rxChartPanel'),
             rxDataPanel: document.getElementById('rxDataPanel'),
@@ -1481,7 +1485,7 @@
             el.querySelector('.dp-ok').addEventListener('click', async () => {
                 const inp = el.querySelector('.dp-new-inp');
                 const prefix = inp.value.trim();
-                if (prefix.length < 2) { modalAlert(t('prefixTooShort')); return; }
+                if (prefix.length < 2) { flashInput(inp); return; }
                 if (dataLabels.some(d => d.prefix === prefix)) {
                     modalAlert(t('alreadyExists'));
                     return;
@@ -1715,16 +1719,53 @@
             return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
-        // 新数据到达时刷新曲线点图
+        // 新数据到达时刷新曲线点图 & XY散点图
         function onNewDataLine(line) {
             if (chartItems.length === 0) return;
+            // 从该行提取所有数值，更新 XY 缓存
+            const allNums = line.match(/-?\d+\.?\d*/g);
+            if (allNums && allNums.length > 0) {
+                // 提取行中出现的所有特征名及其值
+                for (const item of chartItems) {
+                    if (!item.canvas || item.type !== 'xy') continue;
+                    if (line.includes(item.prefixX)) {
+                        const v = extractVal(line, item.prefixX);
+                        if (v !== null) {
+                            xyLatestValues[item.prefixX] = v;
+                            xyDirtyFlags[item.prefixX] = true;
+                        }
+                    }
+                    if (line.includes(item.prefixY)) {
+                        const v = extractVal(line, item.prefixY);
+                        if (v !== null) {
+                            xyLatestValues[item.prefixY] = v;
+                            xyDirtyFlags[item.prefixY] = true;
+                        }
+                    }
+                }
+            }
             for (const item of chartItems) {
                 if (!item.canvas) continue;
-                const v = extractVal(line, item.prefix);
-                if (v !== null) {
-                    item.values.push(v);
-                    if (item.values.length > (item.maxPoints || 50)) item.values.shift();
-                    drawChart(item);
+                if (item.type === 'xy') {
+                    const vx = xyLatestValues[item.prefixX];
+                    const vy = xyLatestValues[item.prefixY];
+                    // 只有当两个值都存在且都在本次更新周期内被更新过，才绘制新点
+                    if (vx !== undefined && vy !== undefined
+                        && xyDirtyFlags[item.prefixX] && xyDirtyFlags[item.prefixY]) {
+                        item.valuesX.push(vx);
+                        item.valuesY.push(vy);
+                        if (item.valuesX.length > (item.maxPoints || 500)) { item.valuesX.shift(); item.valuesY.shift(); }
+                        xyDirtyFlags[item.prefixX] = false;
+                        xyDirtyFlags[item.prefixY] = false;
+                        drawChart(item);
+                    }
+                } else {
+                    const v = extractVal(line, item.prefix);
+                    if (v !== null) {
+                        item.values.push(v);
+                        if (item.values.length > (item.maxPoints || 50)) item.values.shift();
+                        drawChart(item);
+                    }
                 }
             }
         }
@@ -1752,6 +1793,19 @@
         function escapeHtml(s) {
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
+
+        function flashInput(input) {
+            input.classList.remove('flash-empty');
+            void input.offsetWidth;
+            input.classList.add('flash-empty');
+            input.addEventListener('animationend', function() { this.classList.remove('flash-empty'); }, { once: true });
+            input.focus();
+        }
+
+        // XY 散点图：跨行缓存每个特征的最新值
+        let xyLatestValues = {};
+        // XY 脏标记：记录哪些特征在上次绘制后有过更新
+        let xyDirtyFlags = {};
 
         function updateDataPanel() {
             if (dataLabels.length === 0) return;
@@ -1866,11 +1920,11 @@
             const delBtn = el.querySelectorAll('button')[1];
             const done = () => {
                 const prefix = inp.value.trim();
-                if (prefix.length < 2) { modalAlert(t('prefixTooShort')); return; }
+                if (prefix.length < 2) { flashInput(inp); return; }
                 if (chartItems.some(c => c.prefix === prefix)) { modalAlert(t('alreadyExists')); return; }
                 if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
                 el.remove();
-                chartItems.unshift({ prefix, values: [], maxPoints: 50 });
+                chartItems.unshift({ prefix, values: [], maxPoints: 50, type: 'line', chartStyle: 'line' });
                 renderChartPanel();
                 saveSettings();
             };
@@ -1887,6 +1941,109 @@
             inp.focus();
         }
 
+        function addGaugeEditor() {
+            // 仪表盘编辑器
+            els.rxChartPanel.classList.add('visible');
+            const el = document.createElement('div');
+            el.className = 'rx-chart-item';
+            el.style.display = 'flex';
+            el.style.flexDirection = 'column';
+            el.style.height = 'auto';
+            el.style.flex = '0 0 auto';
+            el.style.width = '100%';
+            el.innerHTML = '<div class="chart-titlebar" style="display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;padding:0 6px;">'
+                + '<span style="color:#30363d;font-size:12px;cursor:default;">\u283F</span>'
+                + '<input type="text" placeholder="' + t('prefixPlaceholder') + '" spellcheck="false" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
+                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
+                + '</div>';
+            const inp = el.querySelector('input');
+            const okBtn = el.querySelectorAll('button')[0];
+            const delBtn = el.querySelectorAll('button')[1];
+            const done = () => {
+                const prefix = inp.value.trim();
+                if (prefix.length < 2) { flashInput(inp); return; }
+                if (chartItems.some(c => c.prefix === prefix)) { modalAlert(t('alreadyExists')); return; }
+                if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+                el.remove();
+                chartItems.unshift({ prefix, values: [], maxPoints: 50, type: 'line', chartStyle: 'gauge' });
+                renderChartPanel();
+                saveSettings();
+            };
+            okBtn.addEventListener('click', done);
+            delBtn.addEventListener('click', () => {
+                el.remove();
+                if (chartItems.length === 0) {
+                    els.rxChartPanel.classList.remove('visible');
+                    els.rxChartPanel.className = 'rx-chart-panel';
+                }
+            });
+            inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(); });
+            els.rxChartPanel.insertBefore(el, els.rxChartPanel.firstChild);
+            inp.focus();
+        }
+
+        function addXYChartEditor() {
+            // XY 散点图编辑器，需要输入 X 和 Y 两个特征前缀
+            els.rxChartPanel.classList.add('visible');
+            const el = document.createElement('div');
+            el.className = 'rx-chart-item';
+            el.style.display = 'flex';
+            el.style.flexDirection = 'column';
+            el.style.height = 'auto';
+            el.style.flex = '0 0 auto';
+            el.style.width = '100%';
+            el.innerHTML = '<div class="chart-titlebar" style="display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;padding:0 6px;">'
+                + '<span style="color:#30363d;font-size:12px;cursor:default;">\u283F</span>'
+                + '<input type="text" placeholder="X" spellcheck="false" style="flex:1;min-width:36px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
+                + '<span style="color:var(--comment);font-size:12px;">/</span>'
+                + '<input type="text" placeholder="Y" spellcheck="false" style="flex:1;min-width:36px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
+                + '<span style="color:var(--comment);font-size:11px;white-space:nowrap;">X范围</span>'
+                + '<input type="text" placeholder="100" spellcheck="false" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 4px;color:var(--accent);font-size:12px;outline:none;font-family:inherit;text-align:center;">'
+                + '<span style="color:var(--comment);font-size:11px;">Y范围</span>'
+                + '<input type="text" placeholder="100" spellcheck="false" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 4px;color:var(--accent);font-size:12px;outline:none;font-family:inherit;text-align:center;">'
+                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
+                + '</div>';
+            const inpX = el.querySelectorAll('input')[0];
+            const inpY = el.querySelectorAll('input')[1];
+            const inpRX = el.querySelectorAll('input')[2];
+            const inpRY = el.querySelectorAll('input')[3];
+            const okBtn = el.querySelectorAll('button')[0];
+            const delBtn = el.querySelectorAll('button')[1];
+            const done = () => {
+                const prefixX = inpX.value.trim();
+                const prefixY = inpY.value.trim();
+                if (prefixX.length < 2 && prefixY.length < 2) { flashInput(inpX); return; }
+                if (prefixX.length < 2) { flashInput(inpX); return; }
+                if (prefixY.length < 2) { flashInput(inpY); return; }
+                let rangeX = parseFloat(inpRX.value) || 100;
+                let rangeY = parseFloat(inpRY.value) || 100;
+                if (rangeX <= 0) rangeX = 100;
+                if (rangeY <= 0) rangeY = 100;
+                if (chartItems.some(c => (c.type === 'xy' && c.prefixX === prefixX && c.prefixY === prefixY) || (c.type !== 'xy' && c.prefix === prefixX))) {
+                    modalAlert(t('alreadyExists')); return;
+                }
+                if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+                el.remove();
+                chartItems.unshift({ prefixX, prefixY, valuesX: [], valuesY: [], maxPoints: 500, type: 'xy', rangeX, rangeY });
+                renderChartPanel();
+                saveSettings();
+            };
+            okBtn.addEventListener('click', done);
+            delBtn.addEventListener('click', () => {
+                el.remove();
+                if (chartItems.length === 0) {
+                    els.rxChartPanel.classList.remove('visible');
+                    els.rxChartPanel.className = 'rx-chart-panel';
+                }
+            });
+            inpX.addEventListener('keydown', (e) => { if (e.key === 'Enter') inpY.focus(); });
+            inpY.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(); });
+            els.rxChartPanel.insertBefore(el, els.rxChartPanel.firstChild);
+            inpX.focus();
+        }
+
         function renderChartPanel() {
             const panel = els.rxChartPanel;
             panel.innerHTML = '';
@@ -1897,14 +2054,18 @@
                 const item = chartItems[i];
                 const div = document.createElement('div');
                 div.className = 'rx-chart-item';
+                const displayName = item.type === 'xy'
+                    ? escapeHtml(item.prefixX) + ' / ' + escapeHtml(item.prefixY)
+                    : escapeHtml(item.prefix);
                 div.innerHTML = '<div class="chart-titlebar">'
                     + '<span class="chart-drag-handle" draggable="true">\u283F</span>'
-                    + '<span class="chart-name">' + escapeHtml(item.prefix) + '</span>'
+                    + '<span class="chart-name">' + displayName + '</span>'
+                    + (item.chartStyle === 'gauge' ? '' : '<span class="chart-style-btn" style="cursor:pointer;font-size:13px;line-height:1;padding:0 4px;user-select:none;" title="' + t('switchStyle') + '">' + (item.chartStyle === 'bar' ? '\uD83D\uDCCA' : '\uD83D\uDCC8') + '</span>')
                     + '<span class="chart-titlebar-spacer"></span>'
-                    + '<span class="chart-maxpts-label">' + t('chartPts') + '</span>'
+                    + (item.type === 'xy' || item.chartStyle === 'gauge' ? '' : '<span class="chart-maxpts-label">' + t('chartPts') + '</span>'
                     + '<select class="chart-maxpts" style="display:none;">'
                     + CHART_MAX_POINTS_OPTIONS.map(v => '<option value="' + v + '"' + (v === (item.maxPoints || 50) ? ' selected' : '') + '>' + v + '</option>').join('')
-                    + '</select>'
+                    + '</select>')
                     + '<button class="chart-del">\uD83D\uDDD1</button>'
                     + '</div>';
                 const canvas = document.createElement('canvas');
@@ -1917,6 +2078,20 @@
                     saveSettings();
                     renderChartPanel();
                 });
+                // 切换折线/柱状图
+                const styleBtn = div.querySelector('.chart-style-btn');
+                if (styleBtn) {
+                    styleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const cur = chartItems[i].chartStyle || 'line';
+                        const next = cur === 'bar' ? 'line' : 'bar';
+                        chartItems[i].chartStyle = next;
+                        saveSettings();
+                        const item = chartItems[i];
+                        if (item.canvas) drawChart(item);
+                        styleBtn.textContent = next === 'bar' ? '\uD83D\uDCCA' : '\uD83D\uDCC8';
+                    });
+                }
                 // 拖拽排序（仅手柄可拖）
                 const chartHandle = div.querySelector('.chart-drag-handle');
                 chartHandle.addEventListener('dragstart', (e) => {
@@ -2013,7 +2188,7 @@
             const lines = text.split('\n');
             const lastLines = lines.slice(-50);
             for (const item of chartItems) {
-                if (!item.canvas) continue;
+                if (!item.canvas || item.type === 'xy') continue;
                 for (let j = lastLines.length - 1; j >= 0; j--) {
                     const v = extractVal(lastLines[j], item.prefix);
                     if (v !== null) {
@@ -2028,6 +2203,13 @@
 
         function drawChart(item) {
             if (!item.ctx || !item.canvas) return;
+            if (item.type === 'xy') { drawXYChart(item); return; }
+            if (item.chartStyle === 'bar') { drawBarChart(item); return; }
+            if (item.chartStyle === 'gauge') { drawGaugeChart(item); return; }
+            drawLineChart(item);
+        }
+
+        function drawLineChart(item) {
             const canvas = item.canvas;
             const ctx = item.ctx;
             const dpr = window.devicePixelRatio || 1;
@@ -2037,6 +2219,8 @@
             canvas.height = rect.height * dpr;
             ctx.scale(dpr, dpr);
             const w = rect.width, h = rect.height;
+            // 清除画布
+            ctx.clearRect(0, 0, w, h);
             // 从主题 CSS 变量读取颜色
             const cBorder = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#21262d';
             const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
@@ -2108,9 +2292,294 @@
             }
         }
 
-        function addChartFromStorage(prefix, maxPoints) {
+        // 柱状图绘制
+        function drawBarChart(item) {
+            const canvas = item.canvas;
+            const ctx = item.ctx;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const w = rect.width, h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+            const cBorder = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#21262d';
+            const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
+            const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
+            const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
+            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            ctx.fillStyle = cBg;
+            ctx.fillRect(0, 0, w, h);
+            const values = item.values;
+            if (values.length < 1) {
+                ctx.fillStyle = cComment;
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(t('waiting'), w/2, h/2);
+                return;
+            }
+            const pad = 32;
+            const plotW = w - pad - 4;
+            const plotH = h - pad * 2;
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const range = max - min || 1;
+            // 网格线
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 3]);
+            const gridDiv = 9;
+            for (let i = 1; i < gridDiv; i++) {
+                const y = pad + (plotH / gridDiv) * i;
+                ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            // 边框
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(pad, pad, plotW, plotH);
+            // Y轴标注
+            ctx.fillStyle = cComment;
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            const labelCount = 10;
+            for (let i = 0; i < labelCount; i++) {
+                const val = min + (range / (labelCount - 1)) * i;
+                const y = pad + plotH - (plotH / (labelCount - 1)) * i;
+                const label = val % 1 === 0 ? val.toString() : val.toFixed(1);
+                ctx.fillText(label, pad - 4, y);
+            }
+            // 柱状条
+            const barW = Math.max(4, Math.min(30, plotW / values.length * 0.8));
+            const gap = plotW / values.length;
+            for (let i = 0; i < values.length; i++) {
+                const x = pad + (values.length - 1 - i) * gap + (gap - barW) / 2;
+                const barH = ((values[i] - min) / range) * plotH;
+                const y = pad + plotH - barH;
+                ctx.fillStyle = cAccent;
+                ctx.fillRect(x, y, barW, barH);
+            }
+        }
+
+        // 仪表盘绘制
+        function drawGaugeChart(item) {
+            const canvas = item.canvas;
+            const ctx = item.ctx;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const w = rect.width, h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+            const cBorder = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#21262d';
+            const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
+            const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
+            const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
+            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            const cSuccess = getComputedStyle(document.documentElement).getPropertyValue('--success').trim() || '#3fb950';
+            ctx.fillStyle = cBg;
+            ctx.fillRect(0, 0, w, h);
+            const values = item.values;
+            const val = values.length > 0 ? values[values.length - 1] : 0;
+            const allVals = values.length > 0 ? values : [0, 100];
+            const min = Math.min(...allVals);
+            const max = Math.max(...allVals);
+            const range = max - min || 1;
+            const fraction = (val - min) / range;
+            // 仪表盘几何参数
+            const cx = w / 2;
+            const outerR = Math.min(w, h) / 2 - 12;
+            const innerR = outerR * 0.75;
+            const arcStart = Math.PI * 0.75;   // 135° 左下
+            const arcEnd = Math.PI * 2.25;     // 405° 右下
+            const arcSweep = arcEnd - arcStart; // 270°
+            const needleAngle = arcStart + fraction * arcSweep;
+            // 背景弧（轨道）- 绿色
+            ctx.strokeStyle = cSuccess;
+            ctx.lineWidth = outerR - innerR;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.arc(cx, outerR + 12, (outerR + innerR) / 2, arcStart, arcEnd, false);
+            ctx.stroke();
+            // 红色区域：从指针位置到终点
+            ctx.strokeStyle = cDanger;
+            const redStart = needleAngle;
+            ctx.beginPath();
+            ctx.arc(cx, outerR + 12, (outerR + innerR) / 2, redStart, arcEnd, false);
+            ctx.stroke();
+            ctx.lineCap = 'butt';
+            // 刻度线 & 标签
+            const tickCount = 10;
+            ctx.fillStyle = cComment;
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 0; i <= tickCount; i++) {
+                const frac = i / tickCount;
+                const angle = arcStart + frac * arcSweep;
+                const tickVal = min + frac * range;
+                const label = tickVal % 1 === 0 ? tickVal.toString() : tickVal.toFixed(1);
+                // 刻度短线
+                const r1 = innerR;
+                const r2 = innerR - 8;
+                const x1 = cx + r1 * Math.cos(angle);
+                const y1 = (outerR + 12) + r1 * Math.sin(angle);
+                const x2 = cx + r2 * Math.cos(angle);
+                const y2 = (outerR + 12) + r2 * Math.sin(angle);
+                ctx.strokeStyle = cComment;
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+                // 数字标签
+                const lr = innerR - 16;
+                const lx = cx + lr * Math.cos(angle);
+                const ly = (outerR + 12) + lr * Math.sin(angle);
+                ctx.fillText(label, lx, ly);
+            }
+            // 指针
+            const needleLen = innerR - 2;
+            const nx = cx + needleLen * Math.cos(needleAngle);
+            const ny = (outerR + 12) + needleLen * Math.sin(needleAngle);
+            ctx.strokeStyle = cDanger;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath(); ctx.moveTo(cx, outerR + 12); ctx.lineTo(nx, ny); ctx.stroke();
+            // 中心圆
+            ctx.fillStyle = cDanger;
+            ctx.beginPath(); ctx.arc(cx, outerR + 12, 5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = cBg;
+            ctx.beginPath(); ctx.arc(cx, outerR + 12, 2.5, 0, Math.PI * 2); ctx.fill();
+            // 中心数值
+            ctx.fillStyle = cAccent;
+            ctx.font = 'bold 20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const displayVal = val % 1 === 0 ? val.toString() : val.toFixed(1);
+            ctx.fillText(displayVal, cx, outerR + 12 + outerR * 0.45);
+            // 特征名
+            ctx.fillStyle = cComment;
+            ctx.font = '11px sans-serif';
+            ctx.fillText(item.prefix || '', cx, outerR + 12 + outerR * 0.6);
+        }
+
+        function addChartFromStorage(prefix, maxPoints, type, prefixY, rangeX, rangeY, chartStyle) {
             if (chartItems.length >= MAX_CHARTS) return;
-            chartItems.push({ prefix, values: [], maxPoints: maxPoints || 50 });
+            if (type === 'xy') {
+                chartItems.push({ prefixX: prefix, prefixY: prefixY, valuesX: [], valuesY: [], maxPoints: maxPoints || 500, type: 'xy', rangeX: rangeX || 100, rangeY: rangeY || 100 });
+            } else {
+                chartItems.push({ prefix, values: [], maxPoints: maxPoints || 50, chartStyle: chartStyle || 'line' });
+            }
+        }
+
+        // XY 散点图绘制
+        function drawXYChart(item) {
+            const canvas = item.canvas;
+            const ctx = item.ctx;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            const w = rect.width, h = rect.height;
+            // 清除画布
+            ctx.clearRect(0, 0, w, h);
+            const cBorder = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#21262d';
+            const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
+            const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
+            const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
+            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            // 背景
+            ctx.fillStyle = cBg;
+            ctx.fillRect(0, 0, w, h);
+            const vx = item.valuesX, vy = item.valuesY;
+            if (vx.length === 0 || vy.length === 0) {
+                ctx.fillStyle = cComment;
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(t('waiting'), w/2, h/2);
+                return;
+            }
+            const pad = 36;
+            const plotW = w - pad - 16;
+            const plotH = h - pad * 2;
+            const maxX = item.rangeX || 100, maxY = item.rangeY || 100;
+            const rangeX = maxX, rangeY = maxY;
+            // 网格线
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 3]);
+            const gridDiv = 9;
+            for (let i = 1; i < gridDiv; i++) {
+                const x = pad + (plotW / gridDiv) * i;
+                ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
+                const y = pad + (plotH / gridDiv) * i;
+                ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+            }
+            ctx.setLineDash([]);
+            // 边框
+            ctx.strokeStyle = cBorder;
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(pad, pad, plotW, plotH);
+            // 轴标签
+            ctx.fillStyle = cComment;
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            ctx.fillText(item.prefixX || 'X', pad + plotW/2, pad + plotH + 4);
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(item.prefixY || 'Y', pad - 8, pad + plotH/2);
+            // 当前值标注（右上角）
+            const lastX = vx[vx.length - 1];
+            const lastY = vy[vy.length - 1];
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillStyle = cComment;
+            ctx.font = '9px sans-serif';
+            ctx.fillText(item.prefixX + '=' + (lastX % 1 === 0 ? lastX : lastX.toFixed(2)), pad + plotW, pad + 2);
+            ctx.fillText(item.prefixY + '=' + (lastY % 1 === 0 ? lastY : lastY.toFixed(2)), pad + plotW, pad + 14);
+            // Y轴标注
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            const labelCount = 11;
+            for (let i = 0; i < labelCount; i++) {
+                const val = (rangeY / (labelCount - 1)) * i;
+                const y = pad + plotH - (plotH / (labelCount - 1)) * i;
+                const label = val % 1 === 0 ? val.toString() : val.toFixed(1);
+                ctx.fillText(label, pad - 4, y);
+            }
+            // X轴标注
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            for (let i = 0; i < labelCount; i++) {
+                const val = (rangeX / (labelCount - 1)) * i;
+                const x = pad + (plotW / (labelCount - 1)) * i;
+                const label = val % 1 === 0 ? val.toString() : val.toFixed(1);
+                ctx.fillText(label, x, pad + plotH + 12);
+            }
+            // 一个移动的点（最新位置），限制在图表边界内
+            const px = Math.max(pad, Math.min(pad + plotW, pad + (lastX / rangeX) * plotW));
+            const py = Math.max(pad, Math.min(pad + plotH, pad + plotH - (lastY / rangeY) * plotH));
+            // 十字交叉线（贯穿整个绘图区域）
+            ctx.strokeStyle = cAccent;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.5;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(pad, py); ctx.lineTo(pad + plotW, py); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px, pad); ctx.lineTo(px, pad + plotH); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+            // 外圈光晕
+            ctx.fillStyle = cDanger;
+            ctx.globalAlpha = 0.15;
+            ctx.beginPath(); ctx.arc(px, py, 14, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1;
+            // 实心点
+            ctx.fillStyle = cDanger;
+            ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
         }
 
         // 自定义 COM 名称存储（localStorage）
@@ -2965,11 +3434,7 @@
             const inputs = els.quickSendGrid.querySelectorAll('.qs-item input');
             for (let i = 0; i < inputs.length; i++) {
                 if (inputs[i].value.trim() === '') {
-                    inputs[i].classList.remove('flash-empty');
-                    void inputs[i].offsetWidth; // 重置动画
-                    inputs[i].classList.add('flash-empty');
-                    inputs[i].addEventListener('animationend', function() { this.classList.remove('flash-empty'); }, { once: true });
-                    inputs[i].focus();
+                    flashInput(inputs[i]);
                     return;
                 }
             }
@@ -3006,7 +3471,10 @@
                 if (d.mode === 'led') { base.ledMode = d.ledMode; base.threshold = d.threshold; }
                 return base;
             });
-            obj.chartPrefixes = chartItems.map(c => ({ prefix: c.prefix, maxPoints: c.maxPoints || 50 }));
+            obj.chartPrefixes = chartItems.map(c => {
+                if (c.type === 'xy') return { type: 'xy', prefixX: c.prefixX, prefixY: c.prefixY, maxPoints: c.maxPoints || 500, rangeX: c.rangeX || 100, rangeY: c.rangeY || 100 };
+                return { prefix: c.prefix, maxPoints: c.maxPoints || 50, chartStyle: c.chartStyle || 'line' };
+            });
             try { localStorage.setItem(PERSIST_KEY, JSON.stringify(obj)); } catch { }
         }
 
@@ -3031,12 +3499,17 @@
                     }
                     if (dataLabels.length > 0) startLabelTimer();
                 }
-                // 恢复曲线点图
+                // 恢复曲线点图 & XY散点图
                 if (obj.chartPrefixes && Array.isArray(obj.chartPrefixes)) {
                     for (const item of obj.chartPrefixes) {
-                        const prefix = typeof item === 'string' ? item : item.prefix;
-                        const maxPoints = typeof item === 'string' ? 50 : (item.maxPoints || 50);
-                        addChartFromStorage(prefix, maxPoints);
+                        if (item.type === 'xy') {
+                            addChartFromStorage(item.prefixX, item.maxPoints || 500, 'xy', item.prefixY, item.rangeX || 100, item.rangeY || 100);
+                        } else {
+                            const prefix = typeof item === 'string' ? item : item.prefix;
+                            const maxPoints = typeof item === 'string' ? 50 : (item.maxPoints || 50);
+                            const chartStyle = typeof item === 'string' ? 'line' : (item.chartStyle || 'line');
+                            addChartFromStorage(prefix, maxPoints, undefined, undefined, undefined, undefined, chartStyle);
+                        }
                     }
                     if (chartItems.length > 0) { renderChartPanel(); }
                 }
@@ -3115,19 +3588,22 @@
 
         // + 标签
         els.btnAddLabel.addEventListener('click', () => {
-            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            const existing = els.rxDataPanel.querySelector('.dp-editing .dp-new-inp');
+            if (existing) { flashInput(existing); return; }
             addLabelEditor('label');
         });
 
         // + 进度条
         els.btnAddBar.addEventListener('click', () => {
-            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            const existing = els.rxDataPanel.querySelector('.dp-editing .dp-new-inp');
+            if (existing) { flashInput(existing); return; }
             addLabelEditor('progress');
         });
 
         // + LED
         els.btnAddLed.addEventListener('click', () => {
-            if (els.rxDataPanel.querySelector('.dp-editing')) return;
+            const existing = els.rxDataPanel.querySelector('.dp-editing .dp-new-inp');
+            if (existing) { flashInput(existing); return; }
             addLabelEditor('led');
         });
 
@@ -3138,8 +3614,25 @@
         // + 曲线点图
         els.btnAddChart.addEventListener('click', () => {
             if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
-            if (els.rxChartPanel.querySelector('.rx-chart-item input[type="text"]')) return;
+            const existing = els.rxChartPanel.querySelector('.rx-chart-item input[type="text"]');
+            if (existing) { flashInput(existing); return; }
             addChartEditor();
+        });
+
+        // + XY点图
+        els.btnAddXYChart.addEventListener('click', () => {
+            if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+            const existing = els.rxChartPanel.querySelector('.rx-chart-item input[type="text"]');
+            if (existing) { flashInput(existing); return; }
+            addXYChartEditor();
+        });
+
+        // + 仪表盘
+        els.btnAddGauge.addEventListener('click', () => {
+            if (chartItems.length >= MAX_CHARTS) { modalAlert(t('maxChartsReached', MAX_CHARTS)); return; }
+            const existing = els.rxChartPanel.querySelector('.rx-chart-item input[type="text"]');
+            if (existing) { flashInput(existing); return; }
+            addGaugeEditor();
         });
 
         // 修改最大行数时立即裁剪
@@ -3336,7 +3829,7 @@
                 hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
                 addQuick:'+快捷发送', send:'发送', clear:'清空', del:'🗑',
                 confirm:'确认', cancel:'取消', tip:'提示', ok:'确定', close:'关闭',
-                chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP', txPlaceholder:'输入要发送的数据…',
+                chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP', txPlaceholder:'输入要发送的数据…', addXYChart:'+ XY点图', xyNeedBoth:'X和Y特征都需要至少2个字符', xyHint:'输入X/Y特征名', addGauge:'+ 仪表盘', switchStyle:'切换折线/柱状/仪表盘',
                 alreadyExists:'该项已存在', maxChartsReached:'最多添加{0}个曲线点图', noPortSelected:'请先在串口列表中选择一个串口，或点击"请求"按钮请求新的串口设备。',
                 portReqFailed:'请求串口失败: ', portOpenFailed:'打开串口失败: ', portNotConnected:'串口未连接',
                 sendFailed:'发送失败: ', hexInvalid:'HEX 格式无效', hexInvalidHint:'HEX 格式无效，请输入十六进制字节，例如: 01 02 AB FF',
@@ -3357,7 +3850,7 @@
                 hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
                 addQuick:'+ Quick Send', send:'Send', clear:'Clear', del:'🗑',
                 confirm:'Confirm', cancel:'Cancel', tip:'Tip', ok:'OK', close:'Close',
-                chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP', txPlaceholder:'Enter data to send…',
+                chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP', txPlaceholder:'Enter data to send…', addXYChart:'+ XY Plot', xyNeedBoth:'Both X and Y prefixes need at least 2 chars', xyHint:'Enter X/Y prefix', addGauge:'+ Gauge', switchStyle:'Switch Line/Bar/Gauge',
                 alreadyExists:'Already exists', maxChartsReached:'Max {0} charts', noPortSelected:'Select a port first, or click "Request" to add one.',
                 portReqFailed:'Port request failed: ', portOpenFailed:'Open port failed: ', portNotConnected:'Port not connected',
                 sendFailed:'Send failed: ', hexInvalid:'Invalid HEX', hexInvalidHint:'Invalid HEX format, e.g. 01 02 AB FF',
@@ -3378,7 +3871,7 @@
                 hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
                 addQuick:'+ クイック送信', send:'送信', clear:'クリア', del:'🗑',
                 confirm:'確認', cancel:'キャンセル', tip:'ヒント', ok:'OK', close:'閉じる',
-                chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）', txPlaceholder:'送信するデータを入力…',
+                chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）', txPlaceholder:'送信するデータを入力…', addXYChart:'+ XY散布図', xyNeedBoth:'XとYの接頭辞は両方とも2文字以上必要です', xyHint:'X/Y接頭辞を入力', addGauge:'+ ゲージ', switchStyle:'切替 折れ線/棒',
                 alreadyExists:'既に存在します', maxChartsReached:'最大{0}チャート', noPortSelected:'ポートを選択するか、「要求」をクリックしてください。',
                 portReqFailed:'ポート要求失敗: ', portOpenFailed:'ポートを開けませんでした: ', portNotConnected:'ポート未接続',
                 sendFailed:'送信失敗: ', hexInvalid:'HEX形式が無効', hexInvalidHint:'HEX形式が無効です。例: 01 02 AB FF',
@@ -3399,7 +3892,7 @@
                 hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
                 addQuick:'+ 빠른 송신', send:'송신', clear:'지우기', del:'🗑',
                 confirm:'확인', cancel:'취소', tip:'알림', ok:'확인', close:'닫기',
-                chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)', txPlaceholder:'보낼 데이터 입력…',
+                chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)', txPlaceholder:'보낼 데이터 입력…', addXYChart:'+ XY 산점도', xyNeedBoth:'X와 Y 접두사 모두 2자 이상이어야 합니다', xyHint:'X/Y 접두사 입력', addGauge:'+ 게이지', switchStyle:'전환 꺾은선/막대',
                 alreadyExists:'이미 존재함', maxChartsReached:'최대 {0}개 차트', noPortSelected:'포트를 선택하거나 "요청"을 클릭하세요.',
                 portReqFailed:'포트 요청 실패: ', portOpenFailed:'포트 열기 실패: ', portNotConnected:'포트 연결 안 됨',
                 sendFailed:'송신 실패: ', hexInvalid:'HEX 형식 오류', hexInvalidHint:'HEX 형식이 잘못되었습니다. 예: 01 02 AB FF',
@@ -3420,7 +3913,7 @@
                 hexSend:'HEX Envoyer', appendNewline:'Ajouter saut de ligne', autoSend:'Envoi auto',
                 addQuick:'+ Envoi rapide', send:'Envoyer', clear:'Effacer', del:'🗑',
                 confirm:'Confirmer', cancel:'Annuler', tip:'Info', ok:'OK', close:'Fermer',
-                chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP', txPlaceholder:'Entrez les données à envoyer…',
+                chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP', txPlaceholder:'Entrez les données à envoyer…', addXYChart:'+ XY Dispersion', xyNeedBoth:'Les préfixes X et Y doivent avoir au moins 2 caractères', xyHint:'Entrez préfixe X/Y', addGauge:'+ Jauge', switchStyle:'Basculer Ligne/Barre',
                 alreadyExists:'Existe déjà', maxChartsReached:'Max {0} graphiques', noPortSelected:'Sélectionnez un port ou cliquez "Demander".',
                 portReqFailed:'Demande du port échouée: ', portOpenFailed:'Ouverture du port échouée: ', portNotConnected:'Port non connecté',
                 sendFailed:'Envoi échoué: ', hexInvalid:'HEX invalide', hexInvalidHint:'Format HEX invalide, ex: 01 02 AB FF',
@@ -3441,7 +3934,7 @@
                 hexSend:'HEX Senden', appendNewline:'Zeilenumbruch anhängen', autoSend:'Auto-Senden',
                 addQuick:'+ Schnellsenden', send:'Senden', clear:'Löschen', del:'🗑',
                 confirm:'Bestätigen', cancel:'Abbrechen', tip:'Hinweis', ok:'OK', close:'Schließen',
-                chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP', txPlaceholder:'Daten zum Senden eingeben…',
+                chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP', txPlaceholder:'Daten zum Senden eingeben…', addXYChart:'+ XY Streuung', xyNeedBoth:'X- und Y-Präfix benötigen mindestens 2 Zeichen', xyHint:'X/Y-Präfix eingeben', addGauge:'+ Tacho', switchStyle:'Wechsel Linie/Balken',
                 alreadyExists:'Bereits vorhanden', maxChartsReached:'Max {0} Diagramme', noPortSelected:'Wählen Sie einen Port oder klicken Sie "Anfragen".',
                 portReqFailed:'Port-Anfrage fehlgeschlagen: ', portOpenFailed:'Port öffnen fehlgeschlagen: ', portNotConnected:'Port nicht verbunden',
                 sendFailed:'Senden fehlgeschlagen: ', hexInvalid:'Ungültiges HEX', hexInvalidHint:'Ungültiges HEX-Format, z.B. 01 02 AB FF',
@@ -3462,7 +3955,7 @@
                 hexSend:'HEX Enviar', appendNewline:'Añadir salto de línea', autoSend:'Auto Enviar',
                 addQuick:'+ Envío rápido', send:'Enviar', clear:'Limpiar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Cerrar',
-                chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP', txPlaceholder:'Ingrese datos para enviar…',
+                chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP', txPlaceholder:'Ingrese datos para enviar…', addXYChart:'+ XY Dispersión', xyNeedBoth:'Los prefijos X e Y necesitan al menos 2 caracteres', xyHint:'Ingrese prefijo X/Y', addGauge:'+ Medidor', switchStyle:'Cambiar Línea/Barra',
                 alreadyExists:'Ya existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Seleccione un puerto o haga clic en "Solicitar".',
                 portReqFailed:'Solicitud de puerto fallida: ', portOpenFailed:'Error al abrir puerto: ', portNotConnected:'Puerto no conectado',
                 sendFailed:'Envío fallido: ', hexInvalid:'HEX no válido', hexInvalidHint:'Formato HEX no válido, ej: 01 02 AB FF',
@@ -3483,7 +3976,7 @@
                 hexSend:'HEX Enviar', appendNewline:'Adicionar nova linha', autoSend:'Auto Enviar',
                 addQuick:'+ Envio rápido', send:'Enviar', clear:'Limpar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Fechar',
-                chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP', txPlaceholder:'Digite os dados para enviar…',
+                chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP', txPlaceholder:'Digite os dados para enviar…', addXYChart:'+ XY Dispersão', xyNeedBoth:'Os prefixos X e Y precisam de pelo menos 2 caracteres', xyHint:'Digite o prefixo X/Y', addGauge:'+ Medidor', switchStyle:'Alternar Linha/Barra',
                 alreadyExists:'Já existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Selecione uma porta ou clique "Solicitar".',
                 portReqFailed:'Solicitação de porta falhou: ', portOpenFailed:'Falha ao abrir porta: ', portNotConnected:'Porta não conectada',
                 sendFailed:'Envio falhou: ', hexInvalid:'HEX inválido', hexInvalidHint:'Formato HEX inválido, ex: 01 02 AB FF',
