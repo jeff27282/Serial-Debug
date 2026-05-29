@@ -1253,10 +1253,18 @@
                     <div class="toolbar">
                         <div class="tb-row">
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="txEchoEnabled">
+                                <span data-i18n="echoMode">回音模式</span>
+                                <select id="txEchoMode" style="font-size:12px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);outline:none;">
+                                    <option value="raw" data-i18n="echoRaw">原始回环</option>
+                                    <option value="tuya" data-i18n="echoTuya">涂鸦应答</option>
+                                </select>
+                            </label>
+                            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <input type="checkbox" id="txHexMode"> <span data-i18n="hexSend">HEX发送</span>
                             </label>
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
-                                <input type="checkbox" id="txAppendNewline" checked> <span data-i18n="appendNewline">追加换行</span>
+                                <input type="checkbox" id="txAppendNewline"> <span data-i18n="appendNewline">追加换行</span>
                             </label>
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <input type="checkbox" id="txAutoSend"> <span data-i18n="autoSend">自动发送</span>
@@ -1308,6 +1316,11 @@
         let keepReading = false;
         let rxLineBuffer = '';   // 行缓冲：攒够一行再显示
         let rxLineTimer = null;   // 行超时定时器
+        let sendLock = Promise.resolve(); // 发送互斥锁
+        let echoBuffer = [];        // HEX回环缓冲
+        let echoTimer = null;       // HEX回环定时器
+        let rxHexBuffer = [];       // HEX显示缓冲
+        let rxHexTimer = null;      // HEX显示定时器
 
         const els = {
             portInput: document.getElementById('portInput'),
@@ -1344,6 +1357,8 @@
             rxTimestamp: document.getElementById('rxTimestamp'),
             rxAutoScroll: document.getElementById('rxAutoScroll'),
             rxMaxLines: document.getElementById('rxMaxLines'),
+            txEchoEnabled: document.getElementById('txEchoEnabled'),
+            txEchoMode: document.getElementById('txEchoMode'),
             txHexMode: document.getElementById('txHexMode'),
             txAppendNewline: document.getElementById('txAppendNewline'),
             txAutoSend: document.getElementById('txAutoSend'),
@@ -1532,15 +1547,12 @@
                     rxLineTimer = null;
                 }
             } else {
-                // 非文本模式：直接显示，每块数据一个时间戳
-                const text = formatData(data, mode);
-                const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                let html = '';
-                if (showTs) {
-                    html += `<span class="timestamp">[${getTimestamp()}]</span> `;
-                }
-                html += `<span class="${cssClass}">${escaped}</span>`;
-                el.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
+                // 非文本模式：数据不直接显示，累积到缓冲后静默再显示
+                const bytes = new Uint8Array(data);
+                for (let i = 0; i < bytes.length; i++) rxHexBuffer.push(bytes[i]);
+                if (rxHexTimer) clearTimeout(rxHexTimer);
+                const hexTimeout = calcLineTimeoutMs() || 10;
+                rxHexTimer = setTimeout(flushRxHex, hexTimeout);
             }
 
             trimRx();
@@ -1551,6 +1563,105 @@
 
             rxCounter += data.byteLength;
             els.rxCount.textContent = rxCounter;
+
+            // 发送接收到的内容（回环：累积缓冲，静默后整包发送）
+            if (els.txEchoEnabled.checked && connected && port?.writable) {
+                const bytes = new Uint8Array(data);
+                for (let i = 0; i < bytes.length; i++) echoBuffer.push(bytes[i]);
+                if (echoTimer) clearTimeout(echoTimer);
+                const timeout = calcLineTimeoutMs() || 10;
+                echoTimer = setTimeout(flushEcho, timeout);
+            }
+        }
+
+        function flushEcho() {
+            echoTimer = null;
+            if (echoBuffer.length === 0) return;
+            const buf = new Uint8Array(echoBuffer);
+            echoBuffer = [];
+
+            const mode = els.txEchoMode ? els.txEchoMode.value : 'raw';
+
+            if (mode === 'tuya') {
+                // 涂鸦应答模式：模拟MCU行为，识别 0x06 下发帧并回复 0x07 上报帧
+                const response = buildTuyaResponse(buf);
+                if (response) sendData(response);
+                return;
+            }
+
+            // 原始回环模式
+            sendData(buf);
+        }
+
+        /** 涂鸦协议：模拟MCU回应——收到0x06下发，回复0x07上报 */
+        function buildTuyaResponse(buf) {
+            // 查找 55 AA 帧头
+            let start = -1;
+            for (let i = 0; i < buf.length - 1; i++) {
+                if (buf[i] === 0x55 && buf[i + 1] === 0xAA) {
+                    start = i;
+                    break;
+                }
+            }
+            if (start < 0 || start + 6 > buf.length) return null;
+
+            const cmd = buf[start + 3];
+            const dataLen = (buf[start + 4] << 8) | buf[start + 5];
+            const payload = buf.slice(start + 6, start + 6 + dataLen);
+
+            // 只处理 DP 下发 (0x06)
+            if (cmd !== 0x06) return null;
+
+            // 解析所有 DP 并生成对应的 0x07 上报帧
+            let offset = 0;
+            const dpUnits = [];
+            while (offset + 4 <= payload.length) {
+                const dpid = payload[offset];
+                const type = payload[offset + 1];
+                const dpLen = (payload[offset + 2] << 8) | payload[offset + 3];
+                offset += 4;
+                if (offset + dpLen > payload.length) break;
+                const val = payload.slice(offset, offset + dpLen);
+                dpUnits.push({ dpid, type, val });
+                offset += dpLen;
+            }
+
+            if (dpUnits.length === 0) return null;
+
+            // 为每个 DP 构建 0x07 上报帧（MCU 行为：收到下发后上报当前值以示确认）
+            // 依次发送，这里只返回第一个 DP 的响应
+            const first = dpUnits[0];
+            const resp = [0x55, 0xAA, 0x00, 0x07];
+            const payloadBytes = [first.dpid, first.type,
+                (first.val.length >> 8) & 0xFF, first.val.length & 0xFF,
+                ...first.val];
+            resp.push((payloadBytes.length >> 8) & 0xFF);
+            resp.push(payloadBytes.length & 0xFF);
+            resp.push(...payloadBytes);
+            const cs = resp.reduce((s, b) => s + b, 0) % 256;
+            resp.push(cs);
+            return new Uint8Array(resp);
+        }
+
+        function flushRxHex() {
+            rxHexTimer = null;
+            if (rxHexBuffer.length === 0) return;
+            const mode = els.rxDisplayMode.value;
+            const buf = new Uint8Array(rxHexBuffer);
+            rxHexBuffer = [];
+            const text = formatData(buf.buffer, mode);
+            const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const cssClass = mode === 'hex' || mode === 'hexascii' ? 'rx-hex' : 'rx-text';
+            let html = '';
+            if (els.rxTimestamp.checked) {
+                html += `<span class="timestamp">[${getTimestamp()}]</span> `;
+            }
+            html += `<span class="${cssClass}">${escaped}</span>`;
+            els.rxArea.insertAdjacentHTML('beforeend', `<div class="rx-line">${html}</div>`);
+            trimRx();
+            if (els.rxAutoScroll.checked) {
+                els.rxArea.scrollTop = els.rxArea.scrollHeight;
+            }
         }
 
         function trimRx() {
@@ -3178,6 +3289,11 @@
             // 断开前刷新缓冲区中的剩余数据
             if (rxLineTimer) { clearTimeout(rxLineTimer); rxLineTimer = null; }
             flushLineBuffer();
+            if (rxHexTimer) { clearTimeout(rxHexTimer); rxHexTimer = null; }
+            flushRxHex();
+            // 清空回环缓冲
+            if (echoTimer) { clearTimeout(echoTimer); echoTimer = null; }
+            echoBuffer = [];
 
             if (autoSendTimer) {
                 clearInterval(autoSendTimer);
@@ -3238,42 +3354,47 @@
         }
 
         async function sendData(data) {
-            if (!connected || !port || !port.writable) {
-                modalAlert(t('portNotConnected'));
-                return;
-            }
+            // 互斥锁：防止并发获取 Writer
+            return new Promise((resolve) => {
+                sendLock = sendLock.then(async () => {
+                    try {
+                        if (!connected || !port || !port.writable) {
+                            modalAlert(t('portNotConnected'));
+                            resolve();
+                            return;
+                        }
+                        const w = port.writable.getWriter();
+                        await w.write(data);
+                        w.releaseLock();
 
-            try {
-                const w = port.writable.getWriter();
-                await w.write(data);
-                w.releaseLock();
+                        txCounter += data.byteLength;
+                        els.txCount.textContent = txCounter;
 
-                txCounter += data.byteLength;
-                els.txCount.textContent = txCounter;
+                        // 在接收区回显发送的数据
+                        const txMode = els.rxDisplayMode.value;
+                        const showTs = els.rxTimestamp.checked;
+                        const display = formatData(data, txMode);
+                        const escaped = display.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const cssClass = txMode === 'hex' || txMode === 'hexascii' ? 'rx-hex' : 'rx-text';
 
-                // 在接收区回显发送的数据
-                const txMode = els.rxDisplayMode.value;
-                const showTs = els.rxTimestamp.checked;
-                const display = formatData(data, txMode);
-                const escaped = display.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const cssClass = txMode === 'hex' || txMode === 'hexascii' ? 'rx-hex' : 'rx-text';
+                        let line = '';
+                        if (showTs) {
+                            line += `<span class="timestamp">[${getTimestamp()}]</span> `;
+                        }
+                        line += `<span class="rx-arrow">TX:</span> <span class="${cssClass}">${escaped}</span>`;
 
-                let line = '';
-                if (showTs) {
-                    line += `<span class="timestamp">[${getTimestamp()}]</span> `;
-                }
-                line += `<span class="rx-arrow">TX:</span> <span class="${cssClass}">${escaped}</span>`;
-
-                els.rxArea.insertAdjacentHTML('beforeend', `<div class="rx-line">${line}</div>`);
-                trimRx();
-                if (els.rxAutoScroll.checked) {
-                    els.rxArea.scrollTop = els.rxArea.scrollHeight;
-                }
-
-            } catch (e) {
-                console.error('发送错误:', e);
-                modalAlert(t('sendFailed') + e.message);
-            }
+                        els.rxArea.insertAdjacentHTML('beforeend', `<div class="rx-line">${line}</div>`);
+                        trimRx();
+                        if (els.rxAutoScroll.checked) {
+                            els.rxArea.scrollTop = els.rxArea.scrollHeight;
+                        }
+                    } catch (e) {
+                        console.error('发送错误:', e);
+                        modalAlert(t('sendFailed') + e.message);
+                    }
+                    resolve();
+                });
+            });
         }
 
         // ============================================================
@@ -3359,6 +3480,13 @@
                 }
             }
         });
+
+        // 回音复选框控制下拉框启用/禁用
+        els.txEchoEnabled.addEventListener('change', () => {
+            els.txEchoMode.disabled = !els.txEchoEnabled.checked;
+        });
+        // 初始状态
+        els.txEchoMode.disabled = !els.txEchoEnabled.checked;
 
         els.txAutoInterval.addEventListener('change', () => {
             if (autoSendTimer) {
@@ -3548,7 +3676,6 @@
             ['baudRate', 'v'], ['dataBits', 'v'], ['stopBits', 'v'], ['parity', 'v'],
             ['flowRts', 'c'], ['flowDtr', 'c'],
             ['rxDisplayMode', 'v'], ['rxTimestamp', 'c'], ['rxAutoScroll', 'c'], ['rxMaxLines', 'v'], ['rxAutoLineTimeout', 'c'],
-            ['txHexMode', 'c'], ['txAppendNewline', 'c'], ['txAutoInterval', 'v'],
         ];
 
         function saveSettings() {
@@ -3748,6 +3875,8 @@
         els.rxDisplayMode.addEventListener('change', () => {
             if (rxLineTimer) { clearTimeout(rxLineTimer); rxLineTimer = null; }
             flushLineBuffer();
+            if (rxHexTimer) { clearTimeout(rxHexTimer); rxHexTimer = null; }
+            flushRxHex();
         });
 
         // 自动换行复选框变更时，如果关闭则立即刷新缓冲区
@@ -3948,7 +4077,7 @@
                 rx:'接收区', tx:'发送区', display:'显示', timestamp:'时间戳', autoScroll:'自动滚动',
                 maxLines:'最大行', clearRx:'清空接收区', saveRx:'保存接收区',
                 addLabel:'+ 标签', addBar:'+ 进度条', addLed:'+ LED', addChart:'+ 曲线点图',
-                hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
+                echoSend:'发送接收到的内容', echoMode:'回音模式', echoRaw:'原始回环', echoTuya:'涂鸦应答', hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
                 autoLineTimeout:'自动换行',
                 addQuick:'+快捷发送', send:'发送', clear:'清空', del:'🗑',
                 confirm:'确认', cancel:'取消', tip:'提示', ok:'确定', close:'关闭',
@@ -3970,7 +4099,7 @@
                 rx:'RX', tx:'TX', display:'Display', timestamp:'Timestamp', autoScroll:'Auto Scroll',
                 maxLines:'Max Lines', clearRx:'Clear', saveRx:'Save',
                 addLabel:'+ Label', addBar:'+ Bar', addLed:'+ LED', addChart:'+ Chart',
-                hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
+                echoSend:'Echo Received', echoMode:'Echo Mode', echoRaw:'Raw Echo', echoTuya:'Tuya Reply', hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
                 autoLineTimeout:'Auto Wrap',
                 addQuick:'+ Quick Send', send:'Send', clear:'Clear', del:'🗑',
                 confirm:'Confirm', cancel:'Cancel', tip:'Tip', ok:'OK', close:'Close',
@@ -3992,7 +4121,7 @@
                 rx:'受信', tx:'送信', display:'表示', timestamp:'タイムスタンプ', autoScroll:'自動スクロール',
                 maxLines:'最大行', clearRx:'クリア', saveRx:'保存',
                 addLabel:'+ ラベル', addBar:'+ バー', addLed:'+ LED', addChart:'+ チャート',
-                hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
+                echoSend:'受信内容を送信', echoMode:'エコーモード', echoRaw:'生エコー', echoTuya:'Tuya応答', hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
                 autoLineTimeout:'自動改行',
                 addQuick:'+ クイック送信', send:'送信', clear:'クリア', del:'🗑',
                 confirm:'確認', cancel:'キャンセル', tip:'ヒント', ok:'OK', close:'閉じる',
@@ -4014,7 +4143,7 @@
                 rx:'수신', tx:'송신', display:'표시', timestamp:'타임스탬프', autoScroll:'자동 스크롤',
                 maxLines:'최대 줄', clearRx:'지우기', saveRx:'저장',
                 addLabel:'+ 레이블', addBar:'+ 막대', addLed:'+ LED', addChart:'+ 차트',
-                hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
+                echoSend:'수신 내용 전송', echoMode:'에코 모드', echoRaw:'원시 에코', echoTuya:'Tuya 응답', hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
                 autoLineTimeout:'자동 줄바꿈',
                 addQuick:'+ 빠른 송신', send:'송신', clear:'지우기', del:'🗑',
                 confirm:'확인', cancel:'취소', tip:'알림', ok:'확인', close:'닫기',
@@ -4036,7 +4165,7 @@
                 rx:'RX', tx:'TX', display:'Affichage', timestamp:'Horodatage', autoScroll:'Défilement auto',
                 maxLines:'Lignes max', clearRx:'Effacer', saveRx:'Sauvegarder',
                 addLabel:'+ Étiquette', addBar:'+ Barre', addLed:'+ LED', addChart:'+ Graphique',
-                hexSend:'HEX Envoyer', appendNewline:'Ajouter saut de ligne', autoSend:'Envoi auto',
+                echoSend:'Renvoyer reçu', echoMode:'Mode écho', echoRaw:'Écho brut', echoTuya:'Réponse Tuya', hexSend:'HEX Envoyer', appendNewline:'Ajouter saut de ligne', autoSend:'Envoi auto',
                 addQuick:'+ Envoi rapide', send:'Envoyer', clear:'Effacer', del:'🗑',
                 confirm:'Confirmer', cancel:'Annuler', tip:'Info', ok:'OK', close:'Fermer',
                 chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP', txPlaceholder:'Entrez les données à envoyer…', addXYChart:'+ XY Dispersion', xyNeedBoth:'Les préfixes X et Y doivent avoir au moins 2 caractères', xyHint:'Entrez préfixe X/Y', addGauge:'+ Jauge', switchStyle:'Basculer Ligne/Barre',
@@ -4057,7 +4186,7 @@
                 rx:'RX', tx:'TX', display:'Anzeige', timestamp:'Zeitstempel', autoScroll:'Auto-Scroll',
                 maxLines:'Max Zeilen', clearRx:'Löschen', saveRx:'Speichern',
                 addLabel:'+ Label', addBar:'+ Balken', addLed:'+ LED', addChart:'+ Diagramm',
-                hexSend:'HEX Senden', appendNewline:'Zeilenumbruch anhängen', autoSend:'Auto-Senden',
+                echoSend:'Empfangenes senden', echoMode:'Echo-Modus', echoRaw:'Rohes Echo', echoTuya:'Tuya-Antwort', hexSend:'HEX Senden', appendNewline:'Zeilenumbruch anhängen', autoSend:'Auto-Senden',
                 addQuick:'+ Schnellsenden', send:'Senden', clear:'Löschen', del:'🗑',
                 confirm:'Bestätigen', cancel:'Abbrechen', tip:'Hinweis', ok:'OK', close:'Schließen',
                 chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP', txPlaceholder:'Daten zum Senden eingeben…', addXYChart:'+ XY Streuung', xyNeedBoth:'X- und Y-Präfix benötigen mindestens 2 Zeichen', xyHint:'X/Y-Präfix eingeben', addGauge:'+ Tacho', switchStyle:'Wechsel Linie/Balken',
@@ -4078,7 +4207,7 @@
                 rx:'RX', tx:'TX', display:'Mostrar', timestamp:'Marca de tiempo', autoScroll:'Desplazamiento auto',
                 maxLines:'Máx líneas', clearRx:'Limpiar', saveRx:'Guardar',
                 addLabel:'+ Etiqueta', addBar:'+ Barra', addLed:'+ LED', addChart:'+ Gráfico',
-                hexSend:'HEX Enviar', appendNewline:'Añadir salto de línea', autoSend:'Auto Enviar',
+                echoSend:'Reenviar recibido', echoMode:'Modo eco', echoRaw:'Eco bruto', echoTuya:'Respuesta Tuya', hexSend:'HEX Enviar', appendNewline:'Añadir salto de línea', autoSend:'Auto Enviar',
                 addQuick:'+ Envío rápido', send:'Enviar', clear:'Limpiar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Cerrar',
                 chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP', txPlaceholder:'Ingrese datos para enviar…', addXYChart:'+ XY Dispersión', xyNeedBoth:'Los prefijos X e Y necesitan al menos 2 caracteres', xyHint:'Ingrese prefijo X/Y', addGauge:'+ Medidor', switchStyle:'Cambiar Línea/Barra',
@@ -4099,7 +4228,7 @@
                 rx:'RX', tx:'TX', display:'Exibir', timestamp:'Timestamp', autoScroll:'Rolagem automática',
                 maxLines:'Máx linhas', clearRx:'Limpar', saveRx:'Salvar',
                 addLabel:'+ Rótulo', addBar:'+ Barra', addLed:'+ LED', addChart:'+ Gráfico',
-                hexSend:'HEX Enviar', appendNewline:'Adicionar nova linha', autoSend:'Auto Enviar',
+                echoSend:'Eco do recebido', echoMode:'Modo eco', echoRaw:'Eco bruto', echoTuya:'Resposta Tuya', hexSend:'HEX Enviar', appendNewline:'Adicionar nova linha', autoSend:'Auto Enviar',
                 addQuick:'+ Envio rápido', send:'Enviar', clear:'Limpar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Fechar',
                 chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP', txPlaceholder:'Digite os dados para enviar…', addXYChart:'+ XY Dispersão', xyNeedBoth:'Os prefixos X e Y precisam de pelo menos 2 caracteres', xyHint:'Digite o prefixo X/Y', addGauge:'+ Medidor', switchStyle:'Alternar Linha/Barra',
