@@ -1727,10 +1727,11 @@
                         modal.title.textContent = t('ledConfig');
                         modal.body.innerHTML = '<div style="margin-bottom:8px;">'
                             + '<label style="display:block;margin-bottom:4px;color:#8b949e;">' + t('mode') + '</label>'
-                            + '<select id="modalLedMode" style="margin-bottom:8px;">'
+                            + '<select id="modalLedMode" style="margin-bottom:4px;">'
                             + '<option value="bool">' + t('ledModeBool') + '</option>'
                             + '<option value="threshold">' + t('ledModeThreshold') + '</option>'
                             + '</select>'
+                            + '<div id="modalLedDesc" style="font-size:11px;color:var(--accent);margin-bottom:8px;line-height:1.5;padding:6px 8px;background:var(--border);border-radius:4px;border-left:3px solid var(--accent);">' + t('ledModeBoolDesc') + '</div>'
                             + '<input id="modalLedThreshold" type="text" placeholder="' + t('thresholdPlaceholder') + '" disabled>'
                             + '</div>';
                         modal.footer.innerHTML = '';
@@ -1748,9 +1749,12 @@
                         // 绑定模式切换逻辑
                         const sel = modal.body.querySelector('#modalLedMode');
                         const inp = modal.body.querySelector('#modalLedThreshold');
+                        const desc = modal.body.querySelector('#modalLedDesc');
                         const toggleTh = () => {
                             const isTh = sel.value === 'threshold';
                             inp.style.display = isTh ? '' : 'none';
+                            inp.disabled = !isTh;
+                            if (desc) desc.textContent = isTh ? t('ledModeThresholdDesc') : t('ledModeBoolDesc');
                             if (isTh) inp.focus();
                         };
                         sel.onchange = toggleTh;
@@ -1996,10 +2000,16 @@
         function extractLedVal(line, prefix) {
             if (!line.includes(prefix)) return null;
             const lower = line.toLowerCase();
-            // 识别 true/false 文本
+            // 识别常见开关文本
             const after = lower.slice(lower.indexOf(prefix.toLowerCase()) + prefix.length);
-            if (/true/.test(after)) return 1;
-            if (/false/.test(after)) return 0;
+            if (/\btrue\b/.test(after) || /\bon\b/.test(after) ||
+                /\bhigh\b/.test(after) || /\byes\b/.test(after) ||
+                /\benable\b/.test(after) || /\bopen\b/.test(after) ||
+                /\bstart\b/.test(after)) return 1;
+            if (/\bfalse\b/.test(after) || /\boff\b/.test(after) ||
+                /\blow\b/.test(after) || /\bno\b/.test(after) ||
+                /\bdisable\b/.test(after) || /\bclose\b/.test(after) ||
+                /\bstop\b/.test(after)) return 0;
             // 回退到数字提取
             return extractVal(line, prefix);
         }
@@ -4095,7 +4105,7 @@
                 themeTitle:'选择主题配色', langTitle:'选择界面语言',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'文本', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'二进制', optOctal:'八进制', optDecimal:'十进制', optUnlimited:'不限',
-                portConfig:'串口配置', portHistory:'历史串口', renamePort:'重命名端口', ledConfig:'LED 指示灯配置', switchTheme:'切换主题', switchLang:'切换语言', themeDark:'暗色经典', themeOcean:'深海蓝', themeForest:'森林绿', themeSunset:'日落粉', themeLight:'浅色', themeLavender:'薰衣草紫', themeAmber:'琥珀金', themeNord:'北欧极光', themeMono:'黑白灰', themeCoffee:'咖啡棕', themeMidnight:'午夜蓝', themeCherry:'樱桃红', themeMint:'薄荷绿', themeSakura:'樱花粉', themeDracula:'德古拉紫', ledModeBool:'布尔模式（0或false：绿灯）（1或true：红灯）', ledModeThreshold:'阈值模式（<阈值：绿灯）（>=阈值：红灯）', thresholdPlaceholder:'如 50', prefixTooShort:'特征名至少需要2个字符', mode:'模式',
+                portConfig:'串口配置', portHistory:'历史串口', renamePort:'重命名端口', ledConfig:'LED 指示灯配置', switchTheme:'切换主题', switchLang:'切换语言', themeDark:'暗色经典', themeOcean:'深海蓝', themeForest:'森林绿', themeSunset:'日落粉', themeLight:'浅色', themeLavender:'薰衣草紫', themeAmber:'琥珀金', themeNord:'北欧极光', themeMono:'黑白灰', themeCoffee:'咖啡棕', themeMidnight:'午夜蓝', themeCherry:'樱桃红', themeMint:'薄荷绿', themeSakura:'樱花粉', themeDracula:'德古拉紫', ledModeBool:'布尔模式', ledModeBoolDesc:'红灯: 0/false/off/low/no/disable/close/stop · 绿灯: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'阈值模式', ledModeThresholdDesc:'< 阈值 → 绿灯 · ≥ 阈值 → 红灯', thresholdPlaceholder:'如 50', prefixTooShort:'特征名至少需要2个字符', mode:'模式',
             },
             'en': {
                 title:'Serial Debug', port:'Port', placeholder:'— Select —', request:'Request',
@@ -4117,7 +4127,7 @@
                 themeTitle:'Choose Theme', langTitle:'Choose Language',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binary', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Unlimited',
-                portConfig:'Port Settings', portHistory:'Port History', renamePort:'Rename Port', ledConfig:'LED Configuration', switchTheme:'Switch Theme', switchLang:'Switch Language', themeDark:'Dark', themeOcean:'Ocean', themeForest:'Forest', themeSunset:'Sunset', themeLight:'Light', themeLavender:'Lavender', themeAmber:'Amber', themeNord:'Nord', themeMono:'Mono', themeCoffee:'Coffee', themeMidnight:'Midnight', themeCherry:'Cherry', themeMint:'Mint', themeSakura:'Sakura', themeDracula:'Dracula', ledModeBool:'Boolean mode (0/false=green, 1/true=red)', ledModeThreshold:'Threshold mode (<threshold=green, >=threshold=red)', thresholdPlaceholder:'e.g. 50', prefixTooShort:'Prefix needs at least 2 characters', mode:'Mode',
+                portConfig:'Port Settings', portHistory:'Port History', renamePort:'Rename Port', ledConfig:'LED Configuration', switchTheme:'Switch Theme', switchLang:'Switch Language', themeDark:'Dark', themeOcean:'Ocean', themeForest:'Forest', themeSunset:'Sunset', themeLight:'Light', themeLavender:'Lavender', themeAmber:'Amber', themeNord:'Nord', themeMono:'Mono', themeCoffee:'Coffee', themeMidnight:'Midnight', themeCherry:'Cherry', themeMint:'Mint', themeSakura:'Sakura', themeDracula:'Dracula', ledModeBool:'Boolean', ledModeBoolDesc:'Red: 0/false/off/low/no/disable/close/stop · Green: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'Threshold', ledModeThresholdDesc:'< threshold → green · ≥ threshold → red', thresholdPlaceholder:'e.g. 50', prefixTooShort:'Prefix needs at least 2 characters', mode:'Mode',
             },
             'ja': {
                 title:'シリアルデバッガ', port:'ポート', placeholder:'— 選択 —', request:'要求',
@@ -4139,7 +4149,7 @@
                 themeTitle:'テーマ選択', langTitle:'言語選択',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'テキスト', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2進数', optOctal:'8進数', optDecimal:'10進数', optUnlimited:'無制限',
-                portConfig:'ポート設定', portHistory:'シリアルポート履歴', renamePort:'ポート名変更', ledConfig:'LED設定', switchTheme:'テーマ切替', switchLang:'言語切替', themeDark:'ダーク', themeOcean:'オーシャン', themeForest:'フォレスト', themeSunset:'サンセット', themeLight:'ライト', themeLavender:'ラベンダー', themeAmber:'アンバー', themeNord:'ノルド', themeMono:'モノクロ', themeCoffee:'コーヒー', themeMidnight:'ミッドナイト', themeCherry:'チェリー', themeMint:'ミント', themeSakura:'サクラ', themeDracula:'ドラキュラ', ledModeBool:'ブールモード（0/false=緑、1/true=赤）', ledModeThreshold:'しきい値モード（<しきい値=緑、>=しきい値=赤）',
+                portConfig:'ポート設定', portHistory:'シリアルポート履歴', renamePort:'ポート名変更', ledConfig:'LED設定', switchTheme:'テーマ切替', switchLang:'言語切替', themeDark:'ダーク', themeOcean:'オーシャン', themeForest:'フォレスト', themeSunset:'サンセット', themeLight:'ライト', themeLavender:'ラベンダー', themeAmber:'アンバー', themeNord:'ノルド', themeMono:'モノクロ', themeCoffee:'コーヒー', themeMidnight:'ミッドナイト', themeCherry:'チェリー', themeMint:'ミント', themeSakura:'サクラ', themeDracula:'ドラキュラ', ledModeBool:'ブール', ledModeBoolDesc:'赤: 0/false/off/low/no/disable/close/stop · 緑: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'しきい値', ledModeThresholdDesc:'< しきい値 → 緑 · ≥ しきい値 → 赤',
             },
             'ko': {
                 title:'시리얼 디버거', port:'포트', placeholder:'— 선택 —', request:'요청',
@@ -4161,7 +4171,7 @@
                 themeTitle:'테마 선택', langTitle:'언어 선택',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'텍스트', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'2진수', optOctal:'8진수', optDecimal:'10진수', optUnlimited:'무제한',
-                portConfig:'포트 설정', portHistory:'포트 기록', ledConfig:'LED 설정', ledModeBool:'부울 모드 (0/false=녹색, 1/true=빨강)', ledModeThreshold:'임계값 모드 (<임계값=녹색, >=임계값=빨강)',
+                portConfig:'포트 설정', portHistory:'포트 기록', ledConfig:'LED 설정', ledModeBool:'부울', ledModeBoolDesc:'빨강: 0/false/off/low/no/disable/close/stop · 녹색: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'임계값', ledModeThresholdDesc:'< 임계값 → 녹색 · ≥ 임계값 → 빨강',
             },
             'fr': {
                 title:'Débogueur Série', port:'Port', placeholder:'— Sélectionner —', request:'Demander',
@@ -4182,7 +4192,7 @@
                 themeTitle:'Choisir le thème', langTitle:'Choisir la langue',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texte', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binaire', optOctal:'Octal', optDecimal:'Décimal', optUnlimited:'Illimité',
-                portConfig:'Paramètres du port', portHistory:'Historique des ports', ledConfig:'Configuration LED', ledModeBool:'Mode booléen (0/false=vert, 1/true=rouge)', ledModeThreshold:'Mode seuil (<seuil=vert, >=seuil=rouge)',
+                portConfig:'Paramètres du port', portHistory:'Historique des ports', ledConfig:'Configuration LED', ledModeBool:'Booléen', ledModeBoolDesc:'Rouge: 0/false/off/low/no/disable/close/stop · Vert: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'Seuil', ledModeThresholdDesc:'< seuil → vert · ≥ seuil → rouge',
             },
             'de': {
                 title:'Serielles Debug-Tool', port:'Port', placeholder:'— Auswählen —', request:'Anfragen',
@@ -4203,7 +4213,7 @@
                 themeTitle:'Design wählen', langTitle:'Sprache wählen',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Text', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binär', optOctal:'Oktal', optDecimal:'Dezimal', optUnlimited:'Unbegrenzt',
-                portConfig:'Port-Einstellungen', portHistory:'Port-Verlauf', ledConfig:'LED-Konfiguration', ledModeBool:'Boolscher Modus (0/false=grün, 1/true=rot)', ledModeThreshold:'Schwellenwertmodus (<Schwelle=grün, >=Schwelle=rot)',
+                portConfig:'Port-Einstellungen', portHistory:'Port-Verlauf', ledConfig:'LED-Konfiguration', ledModeBool:'Boolesch', ledModeBoolDesc:'Rot: 0/false/off/low/no/disable/close/stop · Grün: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'Schwellwert', ledModeThresholdDesc:'< Schwellwert → grün · ≥ Schwellwert → rot',
             },
             'es': {
                 title:'Depurador Serie', port:'Puerto', placeholder:'— Seleccionar —', request:'Solicitar',
@@ -4224,7 +4234,7 @@
                 themeTitle:'Elegir tema', langTitle:'Elegir idioma',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binario', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
-                portConfig:'Configuración del puerto', portHistory:'Historial de puertos', ledConfig:'Configuración LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=rojo)', ledModeThreshold:'Modo umbral (<umbral=verde, >=umbral=rojo)',
+                portConfig:'Configuración del puerto', portHistory:'Historial de puertos', ledConfig:'Configuración LED', ledModeBool:'Booleano', ledModeBoolDesc:'Rojo: 0/false/off/low/no/disable/close/stop · Verde: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'Umbral', ledModeThresholdDesc:'< umbral → verde · ≥ umbral → rojo',
             },
             'pt': {
                 title:'Depurador Serial', port:'Porta', placeholder:'— Selecionar —', request:'Solicitar',
@@ -4245,7 +4255,7 @@
                 themeTitle:'Escolher tema', langTitle:'Escolher idioma',
                 rxCount:'RX', txCount:'TX', ms:'ms',
                 optText:'Texto', optHex:'HEX', optHexAscii:'HEX+ASCII', optBinary:'Binário', optOctal:'Octal', optDecimal:'Decimal', optUnlimited:'Ilimitado',
-                portConfig:'Configurações da porta', portHistory:'Histórico de portas', ledConfig:'Configuração de LED', ledModeBool:'Modo booleano (0/false=verde, 1/true=vermelho)', ledModeThreshold:'Modo limite (<limite=verde, >=limite=vermelho)',
+                portConfig:'Configurações da porta', portHistory:'Histórico de portas', ledConfig:'Configuração de LED', ledModeBool:'Booleano', ledModeBoolDesc:'Vermelho: 0/false/off/low/no/disable/close/stop · Verde: 1/true/on/high/yes/enable/open/start', ledModeThreshold:'Limite', ledModeThresholdDesc:'< limite → verde · ≥ limite → vermelho',
             },
         };
         let currentLang = localStorage.getItem('serial_lang') || 'en';
