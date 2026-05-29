@@ -659,7 +659,7 @@
         .rx-chart-item .chart-del {
             border:none; border-radius:6px; cursor:pointer;
             font-size:11px; padding:4px 6px; min-width:28px;
-            background:var(--danger); color:#fff; line-height:1.4;
+            background:#f85149; color:#fff; line-height:1.4;
             text-align:center; transition:opacity .15s;
             flex-shrink:0;
         }
@@ -1912,7 +1912,7 @@
             el.innerHTML = '<div class="chart-titlebar" style="display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;padding:0 6px;">'
                 + '<span style="color:#30363d;font-size:12px;cursor:default;">\u283F</span>'
                 + '<input type="text" placeholder="' + t('prefixPlaceholder') + '" spellcheck="false" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
-                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#3fb950;color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
                 + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
                 + '</div>';
             const inp = el.querySelector('input');
@@ -1954,7 +1954,7 @@
             el.innerHTML = '<div class="chart-titlebar" style="display:flex;align-items:center;gap:4px;height:30px;flex-shrink:0;padding:0 6px;">'
                 + '<span style="color:#30363d;font-size:12px;cursor:default;">\u283F</span>'
                 + '<input type="text" placeholder="' + t('prefixPlaceholder') + '" spellcheck="false" style="flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:12px;outline:none;font-family:inherit;">'
-                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#3fb950;color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
                 + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
                 + '</div>';
             const inp = el.querySelector('input');
@@ -2002,7 +2002,7 @@
                 + '<input type="text" placeholder="100" spellcheck="false" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 4px;color:var(--accent);font-size:12px;outline:none;font-family:inherit;text-align:center;">'
                 + '<span style="color:var(--comment);font-size:11px;">Y范围</span>'
                 + '<input type="text" placeholder="100" spellcheck="false" style="width:50px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 4px;color:var(--accent);font-size:12px;outline:none;font-family:inherit;text-align:center;">'
-                + '<button style="background:var(--success);color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
+                + '<button style="background:#3fb950;color:var(--bg);border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\u2713</button>'
                 + '<button style="background:#f85149;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;padding:3px 8px;line-height:1.4;">\uD83D\uDDD1</button>'
                 + '</div>';
             const inpX = el.querySelectorAll('input')[0];
@@ -2227,7 +2227,7 @@
             const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
             const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
             const cText = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#e6edf3';
-            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            const cDanger = '#f85149';
             // 背景
             ctx.fillStyle = cBg;
             ctx.fillRect(0, 0, w, h);
@@ -2308,7 +2308,7 @@
             const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
             const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
             const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
-            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            const cDanger = '#f85149';
             ctx.fillStyle = cBg;
             ctx.fillRect(0, 0, w, h);
             const values = item.values;
@@ -2379,7 +2379,7 @@
             const cAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
             const cComment = getComputedStyle(document.documentElement).getPropertyValue('--comment').trim() || '#8b949e';
             const cBg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0d1117';
-            const cDanger = getComputedStyle(document.documentElement).getPropertyValue('--danger').trim() || '#f85149';
+            const cDanger = '#f85149';
             const cSuccess = getComputedStyle(document.documentElement).getPropertyValue('--success').trim() || '#3fb950';
             ctx.fillStyle = cBg;
             ctx.fillRect(0, 0, w, h);
@@ -2398,8 +2398,8 @@
             const arcEnd = Math.PI * 2.25;     // 405° 右下
             const arcSweep = arcEnd - arcStart; // 270°
             const needleAngle = arcStart + fraction * arcSweep;
-            // 背景弧（轨道）- 绿色
-            ctx.strokeStyle = cSuccess;
+            // 背景弧（轨道）- 跟随主题色
+            ctx.strokeStyle = cAccent;
             ctx.lineWidth = outerR - innerR;
             ctx.lineCap = 'round';
             ctx.beginPath();
@@ -4003,6 +4003,13 @@
             localStorage.setItem('serial_lang', lang);
             document.title = t('title');
             document.querySelector('.header h1').textContent = t('title');
+            // 清理未完成的卡片编辑器和标签编辑器
+            els.rxChartPanel.querySelectorAll('.rx-chart-item input').forEach(inp => {
+                const card = inp.closest('.rx-chart-item');
+                if (card && card.parentNode) card.remove();
+            });
+            els.rxDataPanel.querySelectorAll('.dp-editing').forEach(el => el.remove());
+            if (!els.rxDataPanel.hasChildNodes()) els.rxDataPanel.classList.remove('visible');
             // 更新各静态标签及连接状态文字
             applyLangToPage();
             updateUI();
