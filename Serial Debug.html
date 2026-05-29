@@ -472,7 +472,7 @@
 
         .counter-row span {
             font-weight: 600;
-            color: #e6edf3;
+            color: var(--text);
         }
 
         /* ===== 右侧数据区 ===== */
@@ -536,7 +536,7 @@
             min-height: 0;
             resize: none;
             outline: none;
-            color: #e6edf3;
+            color: var(--text);
         }
 
         .rx-area .timestamp {
@@ -609,7 +609,7 @@
             min-width: 30px;
             background: transparent;
             border: none;
-            color: #e6edf3;
+            color: var(--text);
             font-size: 11px;
             padding: 2px 4px;
             outline: none;
@@ -1198,7 +1198,7 @@
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <span data-i18n="display">显示:</span>
                                 <select id="rxDisplayMode"
-                                    style="font-size:13px;padding:6px 4px;border:1px solid #21262d;border-radius:6px;background:#0d1117;color:#e6edf3;outline:none;">
+                                    style="font-size:13px;padding:6px 4px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);outline:none;">
                                     <option value="text" selected data-i18n="optText">文本</option>
                                     <option value="hex" data-i18n="optHex">HEX</option>
                                     <option value="hexascii" data-i18n="optHexAscii">HEX+ASCII</option>
@@ -1221,7 +1221,7 @@
                             <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <span data-i18n="maxLines">最大行:</span>
                                 <select id="rxMaxLines"
-                                    style="font-size:13px;padding:6px 4px;border:1px solid #21262d;border-radius:6px;background:#0d1117;color:#e6edf3;outline:none;">
+                                    style="font-size:13px;padding:6px 4px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);outline:none;">
                                     <option value="1000" selected>1000</option>
                                     <option value="2000">2000</option>
                                     <option value="5000">5000</option>
@@ -1726,7 +1726,7 @@
                         // 用同步方式设置 modal 内容，然后返回 promise
                         modal.title.textContent = t('ledConfig');
                         modal.body.innerHTML = '<div style="margin-bottom:8px;">'
-                            + '<label style="display:block;margin-bottom:4px;color:#8b949e;">' + t('mode') + '</label>'
+                            + '<label style="display:block;margin-bottom:4px;color:var(--comment);">' + t('mode') + '</label>'
                             + '<select id="modalLedMode" style="margin-bottom:4px;">'
                             + '<option value="bool">' + t('ledModeBool') + '</option>'
                             + '<option value="threshold">' + t('ledModeThreshold') + '</option>'
