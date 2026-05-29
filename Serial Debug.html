@@ -1218,7 +1218,7 @@
                 </div>
                 <div class="quick-send-grid" id="quickSendGrid"></div>
                 <div class="tx-row">
-                    <textarea id="txInput" placeholder="输入要发送的数据…" data-i18n="prefixPlaceholder" data-i18n-type="placeholder"></textarea>
+                    <textarea id="txInput" placeholder="输入要发送的数据…" data-i18n="txPlaceholder" data-i18n-type="placeholder"></textarea>
                     <div class="tx-right">
                         <button class="btn btn-primary" id="btnSend" disabled data-i18n="send">发送</button>
                         <button class="btn btn-secondary btn-sm" id="btnClearTx" data-i18n="clear">清空</button>
@@ -2171,6 +2171,12 @@
             localStorage.setItem('serial_port_names', JSON.stringify(names));
         }
 
+        function removePortName(key) {
+            const names = loadPortNames();
+            delete names[key];
+            localStorage.setItem('serial_port_names', JSON.stringify(names));
+        }
+
         // 每个设备的参数保存（波特率、数据位、停止位、校验位、流控）
         const DEVICE_PARAMS_KEY = 'device_params';
         function loadDeviceParams() {
@@ -2302,6 +2308,12 @@
                         // Cleanup
                         try { await removedPort.forget(); } catch { }
                         removeAuthorizedDevice(enriched);
+                        // Also clean up nickname and device params
+                        const cleanupKey = getPortKey(enriched);
+                        if (cleanupKey) {
+                            removePortName(cleanupKey);
+                            removeDeviceParams(cleanupKey);
+                        }
                     } catch (err) {
                         console.error('删除串口失败:', err);
                     }
@@ -2442,6 +2454,7 @@
             try {
                 if (window.electronAPI?.isElectron) {
                     // Electron: custom internal port picker modal
+                    let selectedPortInfo = null; // 保存用户选择的真实端口信息
                     const p = await new Promise((resolve, reject) => {
                         window.electronAPI.onSerialPorts(async (ports) => {
                             if (!ports || ports.length === 0) {
@@ -2452,6 +2465,7 @@
                             }
                             const selected = await showSerialPortPicker(ports);
                             if (selected) {
+                                selectedPortInfo = selected;
                                 window.electronAPI.selectSerialPort(selected.portId);
                                 // requestPort() will resolve once main process calls callback
                             } else {
@@ -2466,8 +2480,17 @@
                     // Find correct index from full getPorts() list for consistent key
                     const allPorts = await navigator.serial.getPorts();
                     const realIdx = allPorts.indexOf(p);
-                    const displayName = info.name || info.comName || `COM${realIdx + 1}`;
-                    addAuthorizedDevice(enrichPortInfo(info, displayName));
+                    // 优先使用 Electron 端口选择器中获取到的真实设备名称
+                    const displayName = selectedPortInfo?.displayName || '';
+                    const comPortName = selectedPortInfo?.portName || '';
+                    const realName = comPortName
+                        ? (displayName ? `${displayName} (${comPortName})` : comPortName)
+                        : displayName || `COM${realIdx + 1}`;
+                    const enriched = enrichPortInfo(info, realName);
+                    addAuthorizedDevice(enriched);
+                    // 将真实设备名称+COM口持久化（仅当用户未设置过自定义昵称时）
+                    const portKey = getPortKey(enriched);
+                    if (portKey && !loadPortNames()[portKey]) savePortName(portKey, realName);
                     window.electronAPI.saveAuthorizedPort({
                         vendorId: info.usbVendorId,
                         productId: info.usbProductId,
@@ -3313,7 +3336,7 @@
                 hexSend:'HEX发送', appendNewline:'追加换行', autoSend:'自动发送',
                 addQuick:'+快捷发送', send:'发送', clear:'清空', del:'🗑',
                 confirm:'确认', cancel:'取消', tip:'提示', ok:'确定', close:'关闭',
-                chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP',
+                chartPts:'单页绘制点数：', waiting:'等待数据…', prefixPlaceholder:'输入前缀特征,如:TEMP', txPlaceholder:'输入要发送的数据…',
                 alreadyExists:'该项已存在', maxChartsReached:'最多添加{0}个曲线点图', noPortSelected:'请先在串口列表中选择一个串口，或点击"请求"按钮请求新的串口设备。',
                 portReqFailed:'请求串口失败: ', portOpenFailed:'打开串口失败: ', portNotConnected:'串口未连接',
                 sendFailed:'发送失败: ', hexInvalid:'HEX 格式无效', hexInvalidHint:'HEX 格式无效，请输入十六进制字节，例如: 01 02 AB FF',
@@ -3334,7 +3357,7 @@
                 hexSend:'HEX Send', appendNewline:'Append NL', autoSend:'Auto Send',
                 addQuick:'+ Quick Send', send:'Send', clear:'Clear', del:'🗑',
                 confirm:'Confirm', cancel:'Cancel', tip:'Tip', ok:'OK', close:'Close',
-                chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP',
+                chartPts:'Max Points:', waiting:'Waiting…', prefixPlaceholder:'Enter prefix e.g. TEMP', txPlaceholder:'Enter data to send…',
                 alreadyExists:'Already exists', maxChartsReached:'Max {0} charts', noPortSelected:'Select a port first, or click "Request" to add one.',
                 portReqFailed:'Port request failed: ', portOpenFailed:'Open port failed: ', portNotConnected:'Port not connected',
                 sendFailed:'Send failed: ', hexInvalid:'Invalid HEX', hexInvalidHint:'Invalid HEX format, e.g. 01 02 AB FF',
@@ -3355,7 +3378,7 @@
                 hexSend:'HEX送信', appendNewline:'改行追加', autoSend:'自動送信',
                 addQuick:'+ クイック送信', send:'送信', clear:'クリア', del:'🗑',
                 confirm:'確認', cancel:'キャンセル', tip:'ヒント', ok:'OK', close:'閉じる',
-                chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）',
+                chartPts:'最大ポイント:', waiting:'データ待機…', prefixPlaceholder:'接頭辞を入力（例:TEMP）', txPlaceholder:'送信するデータを入力…',
                 alreadyExists:'既に存在します', maxChartsReached:'最大{0}チャート', noPortSelected:'ポートを選択するか、「要求」をクリックしてください。',
                 portReqFailed:'ポート要求失敗: ', portOpenFailed:'ポートを開けませんでした: ', portNotConnected:'ポート未接続',
                 sendFailed:'送信失敗: ', hexInvalid:'HEX形式が無効', hexInvalidHint:'HEX形式が無効です。例: 01 02 AB FF',
@@ -3376,7 +3399,7 @@
                 hexSend:'HEX 송신', appendNewline:'개행 추가', autoSend:'자동 송신',
                 addQuick:'+ 빠른 송신', send:'송신', clear:'지우기', del:'🗑',
                 confirm:'확인', cancel:'취소', tip:'알림', ok:'확인', close:'닫기',
-                chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)',
+                chartPts:'최대 포인트:', waiting:'데이터 대기 중…', prefixPlaceholder:'접두사 입력 (예:TEMP)', txPlaceholder:'보낼 데이터 입력…',
                 alreadyExists:'이미 존재함', maxChartsReached:'최대 {0}개 차트', noPortSelected:'포트를 선택하거나 "요청"을 클릭하세요.',
                 portReqFailed:'포트 요청 실패: ', portOpenFailed:'포트 열기 실패: ', portNotConnected:'포트 연결 안 됨',
                 sendFailed:'송신 실패: ', hexInvalid:'HEX 형식 오류', hexInvalidHint:'HEX 형식이 잘못되었습니다. 예: 01 02 AB FF',
@@ -3397,7 +3420,7 @@
                 hexSend:'HEX Envoyer', appendNewline:'Ajouter saut de ligne', autoSend:'Envoi auto',
                 addQuick:'+ Envoi rapide', send:'Envoyer', clear:'Effacer', del:'🗑',
                 confirm:'Confirmer', cancel:'Annuler', tip:'Info', ok:'OK', close:'Fermer',
-                chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP',
+                chartPts:'Points max:', waiting:'Attente…', prefixPlaceholder:'Entrez préfixe ex: TEMP', txPlaceholder:'Entrez les données à envoyer…',
                 alreadyExists:'Existe déjà', maxChartsReached:'Max {0} graphiques', noPortSelected:'Sélectionnez un port ou cliquez "Demander".',
                 portReqFailed:'Demande du port échouée: ', portOpenFailed:'Ouverture du port échouée: ', portNotConnected:'Port non connecté',
                 sendFailed:'Envoi échoué: ', hexInvalid:'HEX invalide', hexInvalidHint:'Format HEX invalide, ex: 01 02 AB FF',
@@ -3418,7 +3441,7 @@
                 hexSend:'HEX Senden', appendNewline:'Zeilenumbruch anhängen', autoSend:'Auto-Senden',
                 addQuick:'+ Schnellsenden', send:'Senden', clear:'Löschen', del:'🗑',
                 confirm:'Bestätigen', cancel:'Abbrechen', tip:'Hinweis', ok:'OK', close:'Schließen',
-                chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP',
+                chartPts:'Max Punkte:', waiting:'Warten…', prefixPlaceholder:'Präfix eingeben z.B. TEMP', txPlaceholder:'Daten zum Senden eingeben…',
                 alreadyExists:'Bereits vorhanden', maxChartsReached:'Max {0} Diagramme', noPortSelected:'Wählen Sie einen Port oder klicken Sie "Anfragen".',
                 portReqFailed:'Port-Anfrage fehlgeschlagen: ', portOpenFailed:'Port öffnen fehlgeschlagen: ', portNotConnected:'Port nicht verbunden',
                 sendFailed:'Senden fehlgeschlagen: ', hexInvalid:'Ungültiges HEX', hexInvalidHint:'Ungültiges HEX-Format, z.B. 01 02 AB FF',
@@ -3439,7 +3462,7 @@
                 hexSend:'HEX Enviar', appendNewline:'Añadir salto de línea', autoSend:'Auto Enviar',
                 addQuick:'+ Envío rápido', send:'Enviar', clear:'Limpiar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Cerrar',
-                chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP',
+                chartPts:'Puntos máx:', waiting:'Esperando…', prefixPlaceholder:'Ingrese prefijo ej: TEMP', txPlaceholder:'Ingrese datos para enviar…',
                 alreadyExists:'Ya existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Seleccione un puerto o haga clic en "Solicitar".',
                 portReqFailed:'Solicitud de puerto fallida: ', portOpenFailed:'Error al abrir puerto: ', portNotConnected:'Puerto no conectado',
                 sendFailed:'Envío fallido: ', hexInvalid:'HEX no válido', hexInvalidHint:'Formato HEX no válido, ej: 01 02 AB FF',
@@ -3460,7 +3483,7 @@
                 hexSend:'HEX Enviar', appendNewline:'Adicionar nova linha', autoSend:'Auto Enviar',
                 addQuick:'+ Envio rápido', send:'Enviar', clear:'Limpar', del:'🗑',
                 confirm:'Confirmar', cancel:'Cancelar', tip:'Aviso', ok:'OK', close:'Fechar',
-                chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP',
+                chartPts:'Máx pontos:', waiting:'Aguardando…', prefixPlaceholder:'Digite o prefixo ex: TEMP', txPlaceholder:'Digite os dados para enviar…',
                 alreadyExists:'Já existe', maxChartsReached:'Máx {0} gráficos', noPortSelected:'Selecione uma porta ou clique "Solicitar".',
                 portReqFailed:'Solicitação de porta falhou: ', portOpenFailed:'Falha ao abrir porta: ', portNotConnected:'Porta não conectada',
                 sendFailed:'Envio falhou: ', hexInvalid:'HEX inválido', hexInvalidHint:'Formato HEX inválido, ex: 01 02 AB FF',
