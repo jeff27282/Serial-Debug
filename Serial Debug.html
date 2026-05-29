@@ -151,10 +151,10 @@
         .sidebar input {
             width: 100%;
             padding: 6px 10px;
-            border: 1px solid #21262d;
+            border: 1px solid var(--border);
             border-radius: 6px;
-            background: #0d1117;
-            color: #e6edf3;
+            background: var(--bg);
+            color: var(--text);
             font-size: 13px;
             outline: none;
             transition: border .2s;
@@ -162,11 +162,18 @@
 
         .sidebar select:focus,
         .sidebar input:focus {
-            border-color: #58a6ff;
+            border-color: var(--accent);
         }
 
         .sidebar select option {
             background: var(--bg);
+        }
+
+        /* 只读串口输入框：完全无交互 */
+        #portInput {
+            cursor: default !important;
+            user-select: none !important;
+            pointer-events: none !important;
         }
 
         /* 自定义下拉框 */
@@ -796,29 +803,29 @@
             flex-direction: column;
             gap: 2px;
             padding: 10px 14px;
-            border: 1px solid #21262d;
+            border: 1px solid var(--border);
             border-radius: 6px;
             cursor: pointer;
             transition: all .15s;
-            background: #0d1117;
+            background: var(--bg);
         }
         .port-picker-item:hover {
-            border-color: #58a6ff;
-            background: #161b22;
+            border-color: var(--accent);
+            background: var(--raised);
         }
         .port-picker-item.selected {
-            border-color: #58a6ff;
-            background: #1c2333;
+            border-color: var(--accent);
+            background: var(--raised);
             box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
         }
         .port-picker-item .ppi-name {
             font-size: 14px;
             font-weight: 500;
-            color: #e6edf3;
+            color: var(--text);
         }
         .port-picker-item .ppi-info {
             font-size: 12px;
-            color: #8b949e;
+            color: var(--comment);
         }
 
         .modal-footer {
@@ -1092,10 +1099,10 @@
             <h2 data-i18n="portConfig">串口配置</h2>
 
             <div class="section">
-                <label for="portInput" data-i18n="port">串口</label>
+                <label data-i18n="port">串口</label>
                 <div style="display:flex; gap:6px; position:relative;">
-                    <input type="text" id="portInput" readonly
-                        style="flex:1;padding:6px 10px;border:1px solid #21262d;border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;outline:none;"
+                    <input type="text" id="portInput" readonly tabindex="-1"
+                        style="flex:1;"
                         placeholder="— 请选择 —" data-i18n="placeholder" data-i18n-type="placeholder">
                     <button class="btn btn-secondary btn-sm" id="btnRequest" data-i18n="request">请求</button>
                 </div>
